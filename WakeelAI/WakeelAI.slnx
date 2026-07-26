@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="Wakeel.API/Wakeel.API.csproj" />
+  <Project Path="Wakeel.Application/Wakeel.Application.csproj" />
+  <Project Path="Wakeel.Domain/Wakeel.Domain.csproj" />
+  <Project Path="Wakeel.Infrastructure/Wakeel.Infrastructure.csproj" />
+</Solution>
