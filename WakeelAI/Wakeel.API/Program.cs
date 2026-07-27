@@ -1,5 +1,6 @@
-
 using Scalar.AspNetCore;
+using Wakeel.Application;
+using Wakeel.Infrastructure;
 
 namespace Wakeel.API
 {
@@ -15,6 +16,12 @@ namespace Wakeel.API
             // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
             builder.Services.AddOpenApi();
 
+            // Register application services (business logic, validators, etc.)
+            builder.Services.AddApplicationServices();
+
+            // Register infrastructure services (password hasher, repositories, database, etc.)
+            builder.Services.AddInfrastructureServices();
+
             var app = builder.Build();
 
             // Configure the HTTP request pipeline.
@@ -22,13 +29,11 @@ namespace Wakeel.API
             {
                 app.MapOpenApi();
                 app.MapScalarApiReference();
-                
             }
 
             app.UseHttpsRedirection();
 
             app.UseAuthorization();
-
 
             app.MapControllers();
 
