@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Wakeel.Domain.Enums;
 
 namespace Wakeel.Domain.Entities;
 
@@ -11,7 +12,7 @@ public class User
     public string PasswordHash { get; set; } = string.Empty;
     public string FullName { get; set; } = string.Empty;
     public string Phone { get; set; } = string.Empty;
-    public string Role { get; set; } = string.Empty;
+    public UserRole Role { get; set; }
     public bool IsActive { get; set; }
     public bool IsEmailConfirmed { get; set; }
     public string ActivationToken { get; set; } = string.Empty;
