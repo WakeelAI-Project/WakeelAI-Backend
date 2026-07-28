@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Wakeel.Application.Interfaces;
+using Wakeel.Application.Services;
 
 namespace Wakeel.Application;
 
@@ -16,9 +17,8 @@ public static class ApplicationServiceCollectionExtensions
     /// <returns>The same service collection for method chaining.</returns>
     public static IServiceCollection AddApplicationServices(this IServiceCollection services)
     {
-        // TODO: Register IAuthService implementation when AuthService is implemented
-        // Uncomment the line below once AuthService.cs is created in the Application layer
-        // services.AddScoped<IAuthService, AuthService>();
+        // Register authentication service
+        // services.AddScoped<IAuthService, AuthService>(); // to be uncommented
 
         return services;
     }

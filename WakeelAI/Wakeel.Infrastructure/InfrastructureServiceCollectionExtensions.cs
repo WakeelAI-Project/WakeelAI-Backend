@@ -1,27 +1,34 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Wakeel.Application.Interfaces;
+using Wakeel.Application.Interfaces.Repositories;
+using Wakeel.Infrastructure.Persistence;
+using Wakeel.Infrastructure.Repositories;
 using Wakeel.Infrastructure.Security;
 
 namespace Wakeel.Infrastructure;
 
 /// <summary>
-/// Extension methods for registering infrastructure services in the dependency injection container.
+/// Registers Infrastructure-layer services (database context, repositories, unit of work,
+/// and external service implementations) with the dependency injection container.
 /// </summary>
 public static class InfrastructureServiceCollectionExtensions
 {
-    /// <summary>
-    /// Registers all infrastructure services (security, persistence, external services) to the DI container.
-    /// </summary>
-    /// <param name="services">The service collection to register services into.</param>
-    /// <returns>The same service collection for method chaining.</returns>
-    public static IServiceCollection AddInfrastructureServices(this IServiceCollection services)
+    public static IServiceCollection AddInfrastructureServices(
+        this IServiceCollection services,
+        IConfiguration configuration
+    )
     {
-        // Register password hasher implementation
-        services.AddScoped<IPasswordHasher, BCryptPasswordHasher>();
+        services.AddDbContext<ApplicationDbContext>(options =>
+            options.UseSqlServer(configuration.GetConnectionString("DefaultConnection")));
 
-        // TODO: Register database context here when available
-        // services.AddScoped<IUnitOfWork, UnitOfWork>();
-        // services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
+        services.AddScoped<IPasswordHasher, BCryptPasswordHasher>();
+        //services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>(); // to be uncommented
+
+        services.AddScoped<IUserRepository, UserRepository>();
+        services.AddScoped<ICompanyRepository, CompanyRepository>();
+        services.AddScoped<IUnitOfWork, UnitOfWork>();
 
         return services;
     }

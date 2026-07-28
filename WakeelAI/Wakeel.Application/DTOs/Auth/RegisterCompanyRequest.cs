@@ -1,23 +1,49 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace Wakeel.Application.DTOs.Auth;
 
 /// <summary>
-/// Represents the request payload for company registration with admin credentials.
-/// Validation is enforced via Data Annotations attributes.
+/// Represents the request payload for company and owner registration.
+/// Includes company information and admin credentials.
+/// Properties use snake_case in JSON via JsonPropertyName attributes.
 /// </summary>
-/// <param name="CompanyName">The name of the company to register (required, non-empty).</param>
-/// <param name="AdminEmail">The email address of the company's admin user (required, valid email format, must be unique).</param>
-/// <param name="AdminPassword">The password for the admin user (required, minimum 8 characters).</param>
-public record RegisterCompanyRequest(
+public record RegisterCompanyRequest
+{
+    /// <summary>
+    /// The official name of the company to register.
+    /// </summary>
+    [JsonPropertyName("company_name")]
     [Required(ErrorMessage = "Company name is required.")]
-    string CompanyName,
+    public string CompanyName { get; init; } = string.Empty;
 
-    [Required(ErrorMessage = "Admin email is required.")]
-    [EmailAddress(ErrorMessage = "Admin email must be a valid email address.")]
-    string AdminEmail,
+    /// <summary>
+    /// The tax identification number of the company (VAT, Business License ID, etc.).
+    /// </summary>
+    [JsonPropertyName("tax_id")]
+    [Required(ErrorMessage = "Tax ID is required.")]
+    public string TaxId { get; init; } = string.Empty;
 
-    [Required(ErrorMessage = "Admin password is required.")]
-    [MinLength(8, ErrorMessage = "Admin password must be at least 8 characters long.")]
-    string AdminPassword
-);
+    /// <summary>
+    /// The full name of the company owner/admin.
+    /// </summary>
+    [JsonPropertyName("owner_full_name")]
+    [Required(ErrorMessage = "Owner full name is required.")]
+    public string OwnerFullName { get; init; } = string.Empty;
+
+    /// <summary>
+    /// The email address of the company owner (must be unique in the system).
+    /// </summary>
+    [JsonPropertyName("owner_email")]
+    [Required(ErrorMessage = "Owner email is required.")]
+    [EmailAddress(ErrorMessage = "Owner email must be a valid email address.")]
+    public string OwnerEmail { get; init; } = string.Empty;
+
+    /// <summary>
+    /// The password for the owner's account.
+    /// </summary>
+    [JsonPropertyName("password")]
+    [Required(ErrorMessage = "Password is required.")]
+    [MinLength(8, ErrorMessage = "Password must be at least 8 characters long.")]
+    public string Password { get; init; } = string.Empty;
+}
