@@ -1,6 +1,9 @@
 using Scalar.AspNetCore;
 using Wakeel.Application;
 using Wakeel.Infrastructure;
+using Microsoft.EntityFrameworkCore;
+using Scalar.AspNetCore;
+using Wakeel.Infrastructure.Persistence;
 
 namespace Wakeel.API
 {
@@ -11,6 +14,8 @@ namespace Wakeel.API
             var builder = WebApplication.CreateBuilder(args);
 
             // Add services to the container.
+            builder.Services.AddDbContext<ApplicationDbContext>(options =>
+                options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
             builder.Services.AddControllers();
             // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
