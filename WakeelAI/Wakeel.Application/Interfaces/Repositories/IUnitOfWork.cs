@@ -25,6 +25,10 @@ public interface IUnitOfWork : IDisposable
     /// </summary>
     IRefreshTokenRepository RefreshTokens { get; }
     /// <summary>
+    /// Gets the repository for <see cref="Wakeel.Domain.Entities.EmployeeProfile"/> entities.
+    /// </summary>
+    IEmployeeProfileRepository EmployeeProfiles { get; }
+    /// <summary>
     /// Persists all pending changes tracked by this unit of work to the database.
     /// </summary>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>

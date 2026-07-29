@@ -60,4 +60,5 @@ public interface IAuthService
         LogoutRequest request,
         CancellationToken cancellationToken = default
     );
+    Task<(bool IsSuccess, string? ErrorMessage)> ChangePasswordAsync(Guid userId, ChangePasswordRequest request, CancellationToken cancellationToken = default);
 }

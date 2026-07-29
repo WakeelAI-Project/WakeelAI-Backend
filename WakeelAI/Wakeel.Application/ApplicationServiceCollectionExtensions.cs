@@ -1,6 +1,8 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Wakeel.Application.Interfaces;
 using Wakeel.Application.Services;
+using Wakeel.Application.Interfaces; // ensure interfaces are available
+using Wakeel.Application.Interfaces; // duplicate safe import
 
 namespace Wakeel.Application;
 
@@ -19,6 +21,10 @@ public static class ApplicationServiceCollectionExtensions
     {
         // Register authentication service
         services.AddScoped<IAuthService, AuthService>();
+
+        // Register newly implemented user and employee services
+        services.AddScoped<IUserService, UserService>();
+        services.AddScoped<IEmployeeService, EmployeeService>();
 
         return services;
     }
