@@ -3,4 +3,6 @@
   <Project Path="Wakeel.Application/Wakeel.Application.csproj" />
   <Project Path="Wakeel.Domain/Wakeel.Domain.csproj" />
   <Project Path="Wakeel.Infrastructure/Wakeel.Infrastructure.csproj" />
+  <Project Path="Wakeel.Tests.Unit/Wakeel.Tests.Unit.csproj" />
+  <Project Path="Wakeel.Tests.Integration/Wakeel.Tests.Integration.csproj" />
 </Solution>

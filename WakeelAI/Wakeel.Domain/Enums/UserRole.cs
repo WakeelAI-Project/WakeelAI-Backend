@@ -2,7 +2,7 @@ namespace Wakeel.Domain.Enums;
 
 public enum UserRole
 {
-    Owner = 1,
-    HR = 2,
+    Company_Owner = 1,
+    HR_Manager = 2,
     Employee = 3
 }

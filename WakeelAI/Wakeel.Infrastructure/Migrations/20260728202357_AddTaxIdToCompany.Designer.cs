@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Wakeel.Infrastructure.Persistence;
 
@@ -11,9 +12,11 @@ using Wakeel.Infrastructure.Persistence;
 namespace Wakeel.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260728202357_AddTaxIdToCompany")]
+    partial class AddTaxIdToCompany
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -86,38 +89,6 @@ namespace Wakeel.Infrastructure.Migrations
                     b.ToTable("EMPLOYEE_PROFILE", (string)null);
                 });
 
-            modelBuilder.Entity("Wakeel.Domain.Entities.RefreshToken", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<DateTime>("ExpiresAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<bool>("IsRevoked")
-                        .HasColumnType("bit");
-
-                    b.Property<string>("TokenHash")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(450)");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TokenHash")
-                        .IsUnique();
-
-                    b.HasIndex("UserId");
-
-                    b.ToTable("REFRESH_TOKENS", (string)null);
-                });
-
             modelBuilder.Entity("Wakeel.Domain.Entities.User", b =>
                 {
                     b.Property<Guid>("Id")
@@ -188,17 +159,6 @@ namespace Wakeel.Infrastructure.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("Wakeel.Domain.Entities.RefreshToken", b =>
-                {
-                    b.HasOne("Wakeel.Domain.Entities.User", "User")
-                        .WithMany("RefreshTokens")
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("User");
-                });
-
             modelBuilder.Entity("Wakeel.Domain.Entities.User", b =>
                 {
                     b.HasOne("Wakeel.Domain.Entities.Company", "Company")
@@ -227,8 +187,6 @@ namespace Wakeel.Infrastructure.Migrations
                     b.Navigation("CreatedUsers");
 
                     b.Navigation("EmployeeProfile");
-
-                    b.Navigation("RefreshTokens");
                 });
 #pragma warning restore 612, 618
         }
