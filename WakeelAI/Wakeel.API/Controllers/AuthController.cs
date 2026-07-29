@@ -14,9 +14,9 @@ public class AuthController(IAuthService authService) : ControllerBase
 
     [HttpPost("register-company")]
     [ProducesResponseType(typeof(RegisterCompanyResponse), StatusCodes.Status201Created)]
-    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status409Conflict)]
-    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<ActionResult<RegisterCompanyResponse>> RegisterCompany(
         [FromBody] RegisterCompanyRequest request,
         CancellationToken cancellationToken
@@ -31,9 +31,24 @@ public class AuthController(IAuthService authService) : ControllerBase
         {
             return status switch
             {
-                AuthResultStatus.EmailAlreadyExists => Conflict(new ErrorResponse { Message = errorMessage! }),
-                AuthResultStatus.ValidationError => BadRequest(new ErrorResponse { Message = errorMessage! }),
-                _ => StatusCode(StatusCodes.Status500InternalServerError, new ErrorResponse { Message = errorMessage! })
+                AuthResultStatus.EmailAlreadyExists => Conflict(new ApiErrorResponse
+                {
+                    Error = "email_already_exists",
+                    Message = errorMessage!,
+                    Status = StatusCodes.Status409Conflict
+                }),
+                AuthResultStatus.ValidationError => BadRequest(new ApiErrorResponse
+                {
+                    Error = "validation_error",
+                    Message = errorMessage!,
+                    Status = StatusCodes.Status400BadRequest
+                }),
+                _ => StatusCode(StatusCodes.Status500InternalServerError, new ApiErrorResponse
+                {
+                    Error = "internal_error",
+                    Message = errorMessage!,
+                    Status = StatusCodes.Status500InternalServerError
+                })
             };
         }
 
@@ -43,8 +58,8 @@ public class AuthController(IAuthService authService) : ControllerBase
 
     [HttpPost("login")]
     [ProducesResponseType(typeof(LoginResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(AuthErrorResponse), StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(typeof(AuthErrorResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<LoginResponse>> Login(
         [FromBody] LoginRequest request,
         CancellationToken cancellationToken
@@ -59,9 +74,24 @@ public class AuthController(IAuthService authService) : ControllerBase
         {
             return status switch
             {
-                AuthResultStatus.InvalidCredentials => Unauthorized(new AuthErrorResponse { Error = "invalid_credentials" }),
-                AuthResultStatus.AccountInactive => StatusCode(StatusCodes.Status403Forbidden, new AuthErrorResponse { Error = "account_inactive" }),
-                _ => StatusCode(StatusCodes.Status500InternalServerError, new ErrorResponse { Message = errorMessage ?? "An unexpected error occurred." })
+                AuthResultStatus.InvalidCredentials => Unauthorized(new ApiErrorResponse
+                {
+                    Error = "invalid_credentials",
+                    Message = "Wrong email or password.",
+                    Status = StatusCodes.Status401Unauthorized
+                }),
+                AuthResultStatus.AccountInactive => StatusCode(StatusCodes.Status403Forbidden, new ApiErrorResponse
+                {
+                    Error = "account_inactive",
+                    Message = "Account is deactivated.",
+                    Status = StatusCodes.Status403Forbidden
+                }),
+                _ => StatusCode(StatusCodes.Status500InternalServerError, new ApiErrorResponse
+                {
+                    Error = "internal_error",
+                    Message = errorMessage ?? "An unexpected error occurred.",
+                    Status = StatusCodes.Status500InternalServerError
+                })
             };
         }
 
@@ -71,7 +101,7 @@ public class AuthController(IAuthService authService) : ControllerBase
 
     [HttpPost("refresh")]
     [ProducesResponseType(typeof(RefreshTokenResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<RefreshTokenResponse>> Refresh(
         [FromBody] RefreshTokenRequest request,
         CancellationToken cancellationToken
@@ -83,7 +113,12 @@ public class AuthController(IAuthService authService) : ControllerBase
         var (isSuccess, data, errorMessage, _) = await authService.RefreshTokenAsync(request, cancellationToken);
 
         if (!isSuccess)
-            return BadRequest(new ErrorResponse { Message = errorMessage ?? "Invalid refresh token." });
+            return BadRequest(new ApiErrorResponse
+            {
+                Error = "invalid_refresh_token",
+                Message = errorMessage ?? "Invalid refresh token.",
+                Status = StatusCodes.Status400BadRequest
+            });
 
         return Ok(data);
     }
@@ -105,17 +140,18 @@ public class AuthController(IAuthService authService) : ControllerBase
         return NoContent();
     }
 
-    private ErrorResponse BuildValidationErrorResponse()
+    private ApiErrorResponse BuildValidationErrorResponse()
     {
         var errors = ModelState.Values
             .SelectMany(v => v.Errors)
             .Select(e => e.ErrorMessage)
             .ToList();
 
-        return new ErrorResponse
+        return new ApiErrorResponse
         {
-            Message = "Validation failed. Please check the errors below.",
-            Errors = errors
+            Error = "validation_error",
+            Message = string.Join(" ", errors),
+            Status = StatusCodes.Status400BadRequest
         };
     }
 
@@ -131,14 +167,14 @@ public class AuthController(IAuthService authService) : ControllerBase
     }
 }
 
-public class ErrorResponse
-{
-    public string Message { get; set; } = string.Empty;
-    public List<string>? Errors { get; set; }
-}
-
-public class AuthErrorResponse
+public class ApiErrorResponse
 {
     [System.Text.Json.Serialization.JsonPropertyName("error")]
     public string Error { get; set; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("message")]
+    public string Message { get; set; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("status")]
+    public int Status { get; set; }
 }
