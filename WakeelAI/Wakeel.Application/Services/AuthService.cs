@@ -13,42 +13,33 @@ using Wakeel.Domain.Enums;
 namespace Wakeel.Application.Services;
 
 /// <summary>
-/// Handles authentication and company/user registration workflows.
+/// Handles authentication workflows: company/owner registration, login,
+/// access-token refresh, and logout (refresh-token revocation).
 /// </summary>
 public class AuthService : IAuthService
 {
     private readonly IUnitOfWork _unitOfWork;
     private readonly IPasswordHasher _passwordHasher;
     private readonly IJwtTokenGenerator _tokenGenerator;
+    private readonly IRefreshTokenHasher _refreshTokenHasher;
     private readonly ILogger<AuthService> _logger;
 
     public AuthService(
         IUnitOfWork unitOfWork,
         IPasswordHasher passwordHasher,
         IJwtTokenGenerator tokenGenerator,
+        IRefreshTokenHasher refreshTokenHasher,
         ILogger<AuthService> logger
     )
     {
         _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
         _passwordHasher = passwordHasher ?? throw new ArgumentNullException(nameof(passwordHasher));
         _tokenGenerator = tokenGenerator ?? throw new ArgumentNullException(nameof(tokenGenerator));
+        _refreshTokenHasher = refreshTokenHasher ?? throw new ArgumentNullException(nameof(refreshTokenHasher));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    /// <summary>
-    /// Registers a new company and its associated Owner-role user asynchronously.
-    /// Creates a Company entity with an associated Owner-role User and stores hashed credentials.
-    /// </summary>
-    /// <param name="request">The registration request containing company name and admin credentials.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
-    /// <returns>
-    /// A tuple containing:
-    /// - IsSuccess: Whether the registration was successful.
-    /// - Data: The response containing CompanyId, UserId, and tokens (null if failed).
-    /// - ErrorMessage: A descriptive error message if registration failed (null if successful).
-    /// - Status: An AuthResultStatus enum indicating the result of the operation.
-    /// </returns>
-    /// <exception cref="ArgumentNullException">Thrown if request is null.</exception>
+    /// <inheritdoc />
     public async Task<(bool IsSuccess, RegisterCompanyResponse? Data, string? ErrorMessage, AuthResultStatus Status)> RegisterCompanyAsync(
         RegisterCompanyRequest request,
         CancellationToken cancellationToken = default
@@ -61,7 +52,6 @@ public class AuthService : IAuthService
         {
             _logger.LogInformation("Starting company registration for email: {Email}", request.OwnerEmail);
 
-            // Check email uniqueness before creating company to prevent duplicate key exceptions
             var emailExists = await _unitOfWork.Users.EmailExistsAsync(request.OwnerEmail, cancellationToken);
             if (emailExists)
             {
@@ -75,7 +65,6 @@ public class AuthService : IAuthService
             }
 
             var hashedPassword = _passwordHasher.HashPassword(request.Password);
-            _logger.LogDebug("Password hashed successfully for email: {Email}", request.OwnerEmail);
 
             var company = new Company
             {
@@ -87,9 +76,7 @@ public class AuthService : IAuthService
                 RegisteredAt = DateTime.UtcNow,
                 IsActive = true
             };
-
             await _unitOfWork.Companies.AddAsync(company, cancellationToken);
-            _logger.LogInformation("Company created with ID: {CompanyId}, Name: {CompanyName}", company.Id, company.Name);
 
             var user = new User
             {
@@ -99,7 +86,7 @@ public class AuthService : IAuthService
                 PasswordHash = hashedPassword,
                 FullName = request.OwnerFullName,
                 Phone = string.Empty,
-                Role = UserRole.Owner,
+                Role = UserRole.Company_Owner,
                 IsActive = true,
                 IsEmailConfirmed = false,
                 ActivationToken = string.Empty,
@@ -107,16 +94,14 @@ public class AuthService : IAuthService
                 CreatedByUserId = null,
                 CreatedAt = DateTime.UtcNow
             };
-
             await _unitOfWork.Users.AddAsync(user, cancellationToken);
-            _logger.LogInformation("User created with ID: {UserId}, Email: {Email}, Role: Owner", user.Id, user.Email);
-
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
-            _logger.LogInformation("Company and User saved to database successfully");
 
             var accessToken = _tokenGenerator.GenerateAccessToken(user.Id, user.Email, user.Role, company.Id);
             var refreshToken = _tokenGenerator.GenerateRefreshToken(user.Id);
-            _logger.LogDebug("Tokens generated for user: {UserId}", user.Id);
+            await StoreRefreshTokenAsync(user.Id, refreshToken, cancellationToken);
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation("Company registration completed. CompanyId: {CompanyId}, UserId: {UserId}", company.Id, user.Id);
 
             var response = new RegisterCompanyResponse
             {
@@ -127,35 +112,172 @@ public class AuthService : IAuthService
                 RefreshToken = refreshToken
             };
 
-            _logger.LogInformation("Company registration completed successfully. CompanyId: {CompanyId}, UserId: {UserId}",
-                company.Id, user.Id);
-
-            return (
-                IsSuccess: true,
-                Data: response,
-                ErrorMessage: null,
-                Status: AuthResultStatus.Success
-            );
+            return (true, response, null, AuthResultStatus.Success);
         }
         catch (DbUpdateException ex)
         {
             _logger.LogError(ex, "Database error during company registration for email: {Email}", request.OwnerEmail);
-            return (
-                IsSuccess: false,
-                Data: null,
-                ErrorMessage: "A database error occurred during registration. Please try again later.",
-                Status: AuthResultStatus.Failure
-            );
+            return (false, null, "A database error occurred during registration. Please try again later.", AuthResultStatus.Failure);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Unexpected error during company registration for email: {Email}", request.OwnerEmail);
-            return (
-                IsSuccess: false,
-                Data: null,
-                ErrorMessage: "An unexpected error occurred during registration. Please try again later.",
-                Status: AuthResultStatus.Failure
-            );
+            return (false, null, "An unexpected error occurred during registration. Please try again later.", AuthResultStatus.Failure);
         }
+    }
+
+    /// <inheritdoc />
+    public async Task<(bool IsSuccess, LoginResponse? Data, string? ErrorMessage, AuthResultStatus Status)> LoginAsync(
+        LoginRequest request,
+        CancellationToken cancellationToken = default
+    )
+    {
+        if (request is null)
+            throw new ArgumentNullException(nameof(request));
+
+        try
+        {
+            _logger.LogInformation("Login attempt for email: {Email}", request.Email);
+
+            var user = await _unitOfWork.Users.GetByEmailAsync(request.Email, cancellationToken);
+            if (user is null || !_passwordHasher.VerifyPassword(request.Password, user.PasswordHash))
+            {
+                _logger.LogWarning("Login failed: invalid credentials for email: {Email}", request.Email);
+                return (false, null, "invalid_credentials", AuthResultStatus.InvalidCredentials);
+            }
+
+            if (!user.IsActive)
+            {
+                _logger.LogWarning("Login failed: account inactive for email: {Email}", request.Email);
+                return (false, null, "account_inactive", AuthResultStatus.AccountInactive);
+            }
+
+            var accessToken = _tokenGenerator.GenerateAccessToken(user.Id, user.Email, user.Role, user.CompanyId);
+            var refreshToken = _tokenGenerator.GenerateRefreshToken(user.Id);
+            await StoreRefreshTokenAsync(user.Id, refreshToken, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var response = new LoginResponse
+            {
+                UserId = user.Id,
+                CompanyId = user.CompanyId,
+                Role = user.Role.ToString(),
+                AccessToken = accessToken,
+                RefreshToken = refreshToken,
+                ExpiresIn = _tokenGenerator.AccessTokenExpirationSeconds
+            };
+
+            _logger.LogInformation("Login succeeded for UserId: {UserId}", user.Id);
+            return (true, response, null, AuthResultStatus.Success);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error during login for email: {Email}", request.Email);
+            return (false, null, "An unexpected error occurred during login. Please try again later.", AuthResultStatus.Failure);
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<(bool IsSuccess, RefreshTokenResponse? Data, string? ErrorMessage, AuthResultStatus Status)> RefreshTokenAsync(
+        RefreshTokenRequest request,
+        CancellationToken cancellationToken = default
+    )
+    {
+        if (request is null)
+            throw new ArgumentNullException(nameof(request));
+
+        try
+        {
+            var tokenHash = _refreshTokenHasher.Hash(request.RefreshToken);
+            var storedToken = await _unitOfWork.RefreshTokens.GetByTokenHashAsync(tokenHash, cancellationToken);
+
+            if (storedToken is null || storedToken.IsRevoked)
+            {
+                _logger.LogWarning("Refresh failed: token not found or revoked.");
+                return (false, null, "Invalid refresh token.", AuthResultStatus.InvalidRefreshToken);
+            }
+
+            if (storedToken.ExpiresAt < DateTime.UtcNow)
+            {
+                _logger.LogWarning("Refresh failed: token expired for UserId: {UserId}", storedToken.UserId);
+                return (false, null, "Refresh token has expired. Please log in again.", AuthResultStatus.RefreshTokenExpired);
+            }
+
+            var user = await _unitOfWork.Users.GetByIdAsync(storedToken.UserId, cancellationToken);
+            if (user is null || !user.IsActive)
+            {
+                _logger.LogWarning("Refresh failed: user not found or inactive. UserId: {UserId}", storedToken.UserId);
+                return (false, null, "Account not found or inactive.", AuthResultStatus.AccountInactive);
+            }
+
+            var accessToken = _tokenGenerator.GenerateAccessToken(user.Id, user.Email, user.Role, user.CompanyId);
+
+            var response = new RefreshTokenResponse
+            {
+                AccessToken = accessToken,
+                ExpiresIn = _tokenGenerator.AccessTokenExpirationSeconds
+            };
+
+            _logger.LogInformation("Access token refreshed for UserId: {UserId}", user.Id);
+            return (true, response, null, AuthResultStatus.Success);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error during token refresh.");
+            return (false, null, "An unexpected error occurred while refreshing the token.", AuthResultStatus.Failure);
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<(bool IsSuccess, string? ErrorMessage, AuthResultStatus Status)> LogoutAsync(
+        LogoutRequest request,
+        CancellationToken cancellationToken = default
+    )
+    {
+        if (request is null)
+            throw new ArgumentNullException(nameof(request));
+
+        try
+        {
+            var tokenHash = _refreshTokenHasher.Hash(request.RefreshToken);
+            var storedToken = await _unitOfWork.RefreshTokens.GetByTokenHashAsync(tokenHash, cancellationToken);
+
+            if (storedToken is null)
+            {
+                // Don't reveal whether the token existed — logout is idempotent either way.
+                return (true, null, AuthResultStatus.Success);
+            }
+
+            storedToken.IsRevoked = true;
+            _unitOfWork.RefreshTokens.Update(storedToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            _logger.LogInformation("Refresh token revoked for UserId: {UserId}", storedToken.UserId);
+            return (true, null, AuthResultStatus.Success);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error during logout.");
+            return (false, "An unexpected error occurred during logout.", AuthResultStatus.Failure);
+        }
+    }
+
+    /// <summary>
+    /// Hashes and persists a newly generated refresh token for the given user.
+    /// Does not call SaveChangesAsync — the caller commits as part of its own unit of work.
+    /// </summary>
+    private async Task StoreRefreshTokenAsync(Guid userId, string rawRefreshToken, CancellationToken cancellationToken)
+    {
+        var refreshTokenEntity = new RefreshToken
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            TokenHash = _refreshTokenHasher.Hash(rawRefreshToken),
+            ExpiresAt = DateTime.UtcNow.AddDays(_tokenGenerator.RefreshTokenExpirationDays),
+            IsRevoked = false,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        await _unitOfWork.RefreshTokens.AddAsync(refreshTokenEntity, cancellationToken);
     }
 }

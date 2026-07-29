@@ -24,5 +24,25 @@ public enum AuthResultStatus
     /// <summary>
     /// Operation failed due to an unexpected error.
     /// </summary>
-    Failure = 3
+    Failure = 3,
+    
+    /// <summary>
+    /// The provided credentials (email/password) are invalid.
+    /// </summary>
+    InvalidCredentials = 4,
+
+    /// <summary>
+    /// The user account is inactive and cannot be used for authentication.
+    /// </summary>
+    AccountInactive = 5,
+
+    /// <summary>
+    /// The provided refresh token is invalid or does not match the stored token.
+    /// </summary>
+    InvalidRefreshToken = 6,
+
+    /// <summary>
+    /// The provided refresh token has expired and cannot be used to obtain new access tokens.
+    /// </summary>
+    RefreshTokenExpired = 7
 }

@@ -16,6 +16,7 @@ public class UnitOfWork : IUnitOfWork
     private readonly ApplicationDbContext _dbContext;
     private IUserRepository? _users;
     private ICompanyRepository? _companies;
+    private IRefreshTokenRepository? _refreshTokens;
     private bool _disposed;
 
     public UnitOfWork(ApplicationDbContext dbContext)
@@ -28,6 +29,9 @@ public class UnitOfWork : IUnitOfWork
 
     /// <inheritdoc />
     public ICompanyRepository Companies => _companies ??= new CompanyRepository(_dbContext);
+
+    /// <inheritdoc />
+    public IRefreshTokenRepository RefreshTokens => _refreshTokens ??= new RefreshTokenRepository(_dbContext);
 
     /// <inheritdoc />
     public async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)

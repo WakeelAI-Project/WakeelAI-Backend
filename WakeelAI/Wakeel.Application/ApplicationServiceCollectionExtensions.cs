@@ -18,7 +18,7 @@ public static class ApplicationServiceCollectionExtensions
     public static IServiceCollection AddApplicationServices(this IServiceCollection services)
     {
         // Register authentication service
-        // services.AddScoped<IAuthService, AuthService>(); // to be uncommented
+        services.AddScoped<IAuthService, AuthService>();
 
         return services;
     }

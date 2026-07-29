@@ -24,4 +24,14 @@ public interface IJwtTokenGenerator
     /// <param name="userId">The unique identifier of the user.</param>
     /// <returns>A JWT refresh token string.</returns>
     string GenerateRefreshToken(Guid userId);
+
+    /// <summary>
+    /// Gets the expiration time in seconds for access tokens.
+    /// </summary>
+    int AccessTokenExpirationSeconds { get; }
+
+    /// <summary>
+    /// Gets the expiration time in days for refresh tokens.
+    /// </summary>
+    int RefreshTokenExpirationDays { get; }
 }

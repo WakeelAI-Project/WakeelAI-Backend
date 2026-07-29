@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Wakeel.Application.DTOs.Auth;
 using Wakeel.Application.Enums;
@@ -5,101 +6,12 @@ using Wakeel.Application.Interfaces;
 
 namespace Wakeel.API.Controllers;
 
-/// <summary>
-/// Handles authentication-related endpoints (registration, login, token refresh).
-/// Data validation is handled automatically by Data Annotations on the DTOs.
-/// </summary>
 [ApiController]
 [Route("api/[controller]")]
 public class AuthController(IAuthService authService) : ControllerBase
 {
-    /// <summary>
-    /// Registers a new company and creates its owner/admin user account.
-    /// Request validation is performed automatically based on Data Annotations on RegisterCompanyRequest.
-    /// </summary>
-    /// <param name="request">The registration request with company name and admin credentials.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
-    /// <returns>
-    /// 201 Created: Registration successful with company and user IDs.
-    /// 400 Bad Request: Validation failed (empty fields, invalid email format, weak password).
-    /// 409 Conflict: Email already registered.
-    /// 500 Internal Server Error: Unexpected server error.
-    /// </returns>
-    [HttpPost("register")]
-    [ProducesResponseType(typeof(RegisterCompanyResponse), StatusCodes.Status201Created)]
-    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status409Conflict)]
-    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<RegisterCompanyResponse>> Register(
-        [FromBody] RegisterCompanyRequest request,
-        CancellationToken cancellationToken
-    )
-    {
-        // ModelState validation happens automatically based on Data Annotations
-        if (!ModelState.IsValid)
-        {
-            var errors = ModelState.Values
-                .SelectMany(v => v.Errors)
-                .Select(e => e.ErrorMessage)
-                .ToList();
+    private const string RefreshTokenCookieName = "refresh_token";
 
-            return BadRequest(new ErrorResponse
-            {
-                Message = "Validation failed. Please check the errors below.",
-                Errors = errors
-            });
-        }
-
-        // Call the service to handle registration logic
-        var (isSuccess, data, errorMessage, status) = await authService.RegisterCompanyAsync(
-            request,
-            cancellationToken
-        );
-
-        if (!isSuccess)
-        {
-            // Map AuthResultStatus enum to appropriate HTTP response
-            return status switch
-            {
-                AuthResultStatus.EmailAlreadyExists => Conflict(new ErrorResponse
-                {
-                    Message = errorMessage ?? "The provided email is already registered. Please use a different email address."
-                }),
-
-                AuthResultStatus.ValidationError => BadRequest(new ErrorResponse
-                {
-                    Message = errorMessage ?? "Registration validation failed. Please check your input data."
-                }),
-
-                AuthResultStatus.Failure => BadRequest(new ErrorResponse
-                {
-                    Message = errorMessage ?? "Registration failed. Please try again later."
-                }),
-
-                _ => StatusCode(StatusCodes.Status500InternalServerError, new ErrorResponse
-                {
-                    Message = errorMessage ?? "An unexpected error occurred. Please contact support."
-                })
-            };
-        }
-
-        // Return 201 Created with the response data
-        return Created(string.Empty, data);
-    }
-
-    /// <summary>
-    /// Registers a new company and creates its owner/admin user account.
-    /// This is an alias endpoint for the POST /api/auth/register endpoint with snake_case request/response format.
-    /// Request validation is performed automatically based on Data Annotations on RegisterCompanyRequest.
-    /// </summary>
-    /// <param name="request">The registration request with company and admin credentials in snake_case format.</param>
-    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
-    /// <returns>
-    /// 201 Created: Registration successful with company and user IDs, tokens, and role.
-    /// 400 Bad Request: Validation failed (empty fields, invalid email format, weak password).
-    /// 409 Conflict: Email already registered.
-    /// 500 Internal Server Error: Unexpected server error.
-    /// </returns>
     [HttpPost("register-company")]
     [ProducesResponseType(typeof(RegisterCompanyResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
@@ -110,72 +22,123 @@ public class AuthController(IAuthService authService) : ControllerBase
         CancellationToken cancellationToken
     )
     {
-        // ModelState validation happens automatically based on Data Annotations
         if (!ModelState.IsValid)
-        {
-            var errors = ModelState.Values
-                .SelectMany(v => v.Errors)
-                .Select(e => e.ErrorMessage)
-                .ToList();
+            return BadRequest(BuildValidationErrorResponse());
 
-            return BadRequest(new ErrorResponse
-            {
-                Message = "Validation failed. Please check the errors below.",
-                Errors = errors
-            });
-        }
-
-        // Call the service to handle registration logic
-        var (isSuccess, data, errorMessage, status) = await authService.RegisterCompanyAsync(
-            request,
-            cancellationToken
-        );
+        var (isSuccess, data, errorMessage, status) = await authService.RegisterCompanyAsync(request, cancellationToken);
 
         if (!isSuccess)
         {
-            // Map AuthResultStatus enum to appropriate HTTP response
             return status switch
             {
-                AuthResultStatus.EmailAlreadyExists => Conflict(new ErrorResponse
-                {
-                    Message = errorMessage ?? "The provided email is already registered. Please use a different email address."
-                }),
-
-                AuthResultStatus.ValidationError => BadRequest(new ErrorResponse
-                {
-                    Message = errorMessage ?? "Registration validation failed. Please check your input data."
-                }),
-
-                AuthResultStatus.Failure => BadRequest(new ErrorResponse
-                {
-                    Message = errorMessage ?? "Registration failed. Please try again later."
-                }),
-
-                _ => StatusCode(StatusCodes.Status500InternalServerError, new ErrorResponse
-                {
-                    Message = errorMessage ?? "An unexpected error occurred. Please contact support."
-                })
+                AuthResultStatus.EmailAlreadyExists => Conflict(new ErrorResponse { Message = errorMessage! }),
+                AuthResultStatus.ValidationError => BadRequest(new ErrorResponse { Message = errorMessage! }),
+                _ => StatusCode(StatusCodes.Status500InternalServerError, new ErrorResponse { Message = errorMessage! })
             };
         }
 
-        // Return 201 Created with the response data
+        SetRefreshTokenCookie(data!.RefreshToken);
         return Created(string.Empty, data);
+    }
+
+    [HttpPost("login")]
+    [ProducesResponseType(typeof(LoginResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(AuthErrorResponse), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(AuthErrorResponse), StatusCodes.Status403Forbidden)]
+    public async Task<ActionResult<LoginResponse>> Login(
+        [FromBody] LoginRequest request,
+        CancellationToken cancellationToken
+    )
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(BuildValidationErrorResponse());
+
+        var (isSuccess, data, errorMessage, status) = await authService.LoginAsync(request, cancellationToken);
+
+        if (!isSuccess)
+        {
+            return status switch
+            {
+                AuthResultStatus.InvalidCredentials => Unauthorized(new AuthErrorResponse { Error = "invalid_credentials" }),
+                AuthResultStatus.AccountInactive => StatusCode(StatusCodes.Status403Forbidden, new AuthErrorResponse { Error = "account_inactive" }),
+                _ => StatusCode(StatusCodes.Status500InternalServerError, new ErrorResponse { Message = errorMessage ?? "An unexpected error occurred." })
+            };
+        }
+
+        SetRefreshTokenCookie(data!.RefreshToken);
+        return Ok(data);
+    }
+
+    [HttpPost("refresh")]
+    [ProducesResponseType(typeof(RefreshTokenResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<RefreshTokenResponse>> Refresh(
+        [FromBody] RefreshTokenRequest request,
+        CancellationToken cancellationToken
+    )
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(BuildValidationErrorResponse());
+
+        var (isSuccess, data, errorMessage, _) = await authService.RefreshTokenAsync(request, cancellationToken);
+
+        if (!isSuccess)
+            return BadRequest(new ErrorResponse { Message = errorMessage ?? "Invalid refresh token." });
+
+        return Ok(data);
+    }
+
+    [Authorize]
+    [HttpPost("logout")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> Logout(
+        [FromBody] LogoutRequest request,
+        CancellationToken cancellationToken
+    )
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(BuildValidationErrorResponse());
+
+        await authService.LogoutAsync(request, cancellationToken);
+        Response.Cookies.Delete(RefreshTokenCookieName);
+
+        return NoContent();
+    }
+
+    private ErrorResponse BuildValidationErrorResponse()
+    {
+        var errors = ModelState.Values
+            .SelectMany(v => v.Errors)
+            .Select(e => e.ErrorMessage)
+            .ToList();
+
+        return new ErrorResponse
+        {
+            Message = "Validation failed. Please check the errors below.",
+            Errors = errors
+        };
+    }
+
+    private void SetRefreshTokenCookie(string refreshToken)
+    {
+        Response.Cookies.Append(RefreshTokenCookieName, refreshToken, new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = true,
+            SameSite = SameSiteMode.Strict,
+            Expires = DateTimeOffset.UtcNow.AddDays(7)
+        });
     }
 }
 
-/// <summary>
-/// Standard error response structure for API errors.
-/// Provides consistent error information across all endpoints.
-/// </summary>
 public class ErrorResponse
 {
-    /// <summary>
-    /// A descriptive error message explaining what went wrong.
-    /// </summary>
     public string Message { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Optional list of validation errors (used when multiple validations fail).
-    /// </summary>
     public List<string>? Errors { get; set; }
+}
+
+public class AuthErrorResponse
+{
+    [System.Text.Json.Serialization.JsonPropertyName("error")]
+    public string Error { get; set; } = string.Empty;
 }

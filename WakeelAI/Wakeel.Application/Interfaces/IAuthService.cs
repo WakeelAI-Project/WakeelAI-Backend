@@ -26,4 +26,38 @@ public interface IAuthService
         RegisterCompanyRequest request,
         CancellationToken cancellationToken = default
     );
+
+    /// <summary>
+    /// Authenticates a user asynchronously using their email and password.
+    /// </summary>
+    /// <param name="request"></param>
+    /// <param name="cancellationToken"></param>
+    /// <returns></returns>
+    Task<(bool IsSuccess, LoginResponse? Data, string? ErrorMessage, AuthResultStatus Status)> LoginAsync(
+        LoginRequest request,
+        CancellationToken cancellationToken = default
+    );
+
+    /// <summary>
+    /// Refreshes an access token asynchronously using a valid refresh token.
+    /// </summary>
+    /// <param name="request"></param>
+    /// <param name="cancellationToken"></param>
+    /// <returns></returns>
+
+    Task<(bool IsSuccess, RefreshTokenResponse? Data, string? ErrorMessage, AuthResultStatus Status)> RefreshTokenAsync(
+        RefreshTokenRequest request,
+        CancellationToken cancellationToken = default
+    );
+
+    /// <summary>
+    /// Logs out a user asynchronously by invalidating their refresh token.
+    /// </summary>
+    /// <param name="request"></param>
+    /// <param name="cancellationToken"></param>
+    /// <returns></returns>
+    Task<(bool IsSuccess, string? ErrorMessage, AuthResultStatus Status)> LogoutAsync(
+        LogoutRequest request,
+        CancellationToken cancellationToken = default
+    );
 }

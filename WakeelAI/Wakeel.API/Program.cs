@@ -1,3 +1,4 @@
+using Microsoft.OpenApi;
 using Scalar.AspNetCore;
 using Wakeel.Application;
 using Wakeel.Infrastructure;
@@ -12,6 +13,28 @@ namespace Wakeel.API
 
             // Add services to the container.
             builder.Services.AddControllers();
+            builder.Services.AddEndpointsApiExplorer();
+
+            // swagger
+            builder.Services.AddSwaggerGen(c =>
+            {
+                c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+                {
+                    Name = "Authorization",
+                    Type = SecuritySchemeType.Http,
+                    Scheme = "Bearer",
+                    BearerFormat = "JWT",
+                    In = ParameterLocation.Header,
+                    Description = "Enter your access token"
+                });
+                c.AddSecurityRequirement(document => new OpenApiSecurityRequirement
+                {
+                    {
+                        new OpenApiSecuritySchemeReference("Bearer"),
+                        new List<string>()
+                    }
+                });
+            });
 
             // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
             builder.Services.AddOpenApi();
@@ -29,10 +52,12 @@ namespace Wakeel.API
             {
                 app.MapOpenApi();
                 app.MapScalarApiReference();
+                app.UseSwagger();
+                app.UseSwaggerUI();
             }
 
             app.UseHttpsRedirection();
-
+            app.UseAuthentication();
             app.UseAuthorization();
 
             app.MapControllers();
@@ -41,3 +66,4 @@ namespace Wakeel.API
         }
     }
 }
+public partial class Program { }

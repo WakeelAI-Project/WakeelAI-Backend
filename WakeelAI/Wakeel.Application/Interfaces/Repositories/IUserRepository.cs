@@ -16,4 +16,6 @@ public interface IUserRepository : IGenericRepository<User>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     /// <returns>True if a user with the given email exists; otherwise, false.</returns>
     Task<bool> EmailExistsAsync(string email, CancellationToken cancellationToken = default);
+    Task<User?> GetByEmailAsync(string email, CancellationToken cancellationToken = default);
+
 }

@@ -24,4 +24,5 @@ public class User
     public EmployeeProfile? EmployeeProfile { get; set; }
     public User? CreatedByUser { get; set; }
     public ICollection<User> CreatedUsers { get; set; } = new List<User>();
+    public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
 }
