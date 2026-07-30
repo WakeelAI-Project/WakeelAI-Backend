@@ -35,6 +35,12 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<ICompanyRepository, CompanyRepository>();
         services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
+        // Use file-based email sender for Development if SMTP is not configured
+        var smtpHost = configuration["Smtp:Host"];
+        if (string.IsNullOrWhiteSpace(smtpHost))
+            services.AddScoped<IEmailSender, Wakeel.Infrastructure.Services.FileEmailSender>();
+        else
+            services.AddScoped<IEmailSender, Wakeel.Infrastructure.Services.SmtpEmailSender>();
 
         services.AddJwtAuthentication(configuration);
 

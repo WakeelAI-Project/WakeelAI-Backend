@@ -17,6 +17,7 @@ public class UnitOfWork : IUnitOfWork
     private IUserRepository? _users;
     private ICompanyRepository? _companies;
     private IRefreshTokenRepository? _refreshTokens;
+    private IEmployeeProfileRepository? _employeeProfiles;
     private bool _disposed;
 
     public UnitOfWork(ApplicationDbContext dbContext)
@@ -32,6 +33,11 @@ public class UnitOfWork : IUnitOfWork
 
     /// <inheritdoc />
     public IRefreshTokenRepository RefreshTokens => _refreshTokens ??= new RefreshTokenRepository(_dbContext);
+
+    /// <summary>
+    /// Repository for employee profile records.
+    /// </summary>
+    public IEmployeeProfileRepository EmployeeProfiles => _employeeProfiles ??= new EmployeeProfileRepository(_dbContext);
 
     /// <inheritdoc />
     public async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)

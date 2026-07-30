@@ -38,6 +38,23 @@ public class AuthService : IAuthService
         _refreshTokenHasher = refreshTokenHasher ?? throw new ArgumentNullException(nameof(refreshTokenHasher));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
+    public async Task<(bool IsSuccess, string? ErrorMessage)> ChangePasswordAsync(Guid userId, ChangePasswordRequest request, CancellationToken cancellationToken = default)
+    {
+        var user = await _unitOfWork.Users.GetByIdAsync(userId, cancellationToken);
+        if (user is null)
+            return (false, "user_not_found");
+
+        if (!_passwordHasher.VerifyPassword(request.CurrentPassword, user.PasswordHash))
+            return (false, "invalid_current_password");
+
+        user.PasswordHash = _passwordHasher.HashPassword(request.NewPassword);
+        _unitOfWork.Users.Update(user);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return (true, null);
+    }
+
+    // ChangePasswordAsync removed
 
     /// <inheritdoc />
     public async Task<(bool IsSuccess, RegisterCompanyResponse? Data, string? ErrorMessage, AuthResultStatus Status)> RegisterCompanyAsync(
