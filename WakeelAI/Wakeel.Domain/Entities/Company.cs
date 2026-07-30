@@ -45,6 +45,26 @@ public class Company
     public bool IsActive { get; set; }
 
     /// <summary>
+    /// Contact phone number for the company.
+    /// </summary>
+    public string PhoneNumber { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Contact email for the company.
+    /// </summary>
+    public string Email { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The relative URL or path to the company's uploaded logo.
+    /// </summary>
+    public string LogoUrl { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Text description of the company's working hours.
+    /// </summary>
+    public string WorkingHours { get; set; } = string.Empty;
+
+    /// <summary>
     /// Navigation property: Collection of users belonging to this company.
     /// </summary>
     public ICollection<User> Users { get; set; } = new List<User>();

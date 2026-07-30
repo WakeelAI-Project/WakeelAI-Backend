@@ -5,3 +5,4 @@ obj/
 *.suo
 *repomix*
 **/appsettings.Development.json
+**/wwwroot/uploads/

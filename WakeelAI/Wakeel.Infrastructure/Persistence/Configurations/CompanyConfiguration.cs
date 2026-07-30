@@ -27,6 +27,22 @@ public class CompanyConfiguration : IEntityTypeConfiguration<Company>
         builder.Property(c => c.IsActive)
             .IsRequired();
 
+        builder.Property(c => c.PhoneNumber)
+            .HasMaxLength(50)
+            .IsRequired(false);
+
+        builder.Property(c => c.Email)
+            .HasMaxLength(256)
+            .IsRequired(false);
+
+        builder.Property(c => c.LogoUrl)
+            .HasMaxLength(1000)
+            .IsRequired(false);
+
+        builder.Property(c => c.WorkingHours)
+            .HasMaxLength(500)
+            .IsRequired(false);
+
         // One-to-Many: Company employs Users
         builder.HasMany(c => c.Users)
             .WithOne(u => u.Company)

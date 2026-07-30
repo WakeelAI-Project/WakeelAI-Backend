@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Wakeel.Application.Interfaces;
 using Wakeel.Application.Services;
 using Wakeel.Application.Interfaces; // ensure interfaces are available
@@ -24,6 +24,7 @@ public static class ApplicationServiceCollectionExtensions
         // Register newly implemented user and employee services
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IEmployeeService, EmployeeService>();
+        services.AddScoped<ICompanyService, CompanyService>();
 
         return services;
     }

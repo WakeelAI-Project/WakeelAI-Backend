@@ -42,6 +42,8 @@ public static class InfrastructureServiceCollectionExtensions
         else
             services.AddScoped<IEmailSender, Wakeel.Infrastructure.Services.SmtpEmailSender>();
 
+        services.AddScoped<IFileService, Wakeel.Infrastructure.Services.LocalFileService>();
+
         services.AddJwtAuthentication(configuration);
 
         return services;
