@@ -46,13 +46,10 @@ namespace Wakeel.Infrastructure.Migrations
                     b.Property<DateTime>("RegisteredAt")
                         .HasColumnType("datetime2");
 
-<<<<<<< HEAD
-=======
                     b.Property<string>("TaxId")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
->>>>>>> a1e16be97fe87f91487bdd174f6d7b6ddcca41f4
                     b.HasKey("Id");
 
                     b.ToTable("COMPANY", (string)null);
@@ -89,8 +86,6 @@ namespace Wakeel.Infrastructure.Migrations
                     b.ToTable("EMPLOYEE_PROFILE", (string)null);
                 });
 
-<<<<<<< HEAD
-=======
             modelBuilder.Entity("Wakeel.Domain.Entities.RefreshToken", b =>
                 {
                     b.Property<Guid>("Id")
@@ -123,7 +118,6 @@ namespace Wakeel.Infrastructure.Migrations
                     b.ToTable("REFRESH_TOKENS", (string)null);
                 });
 
->>>>>>> a1e16be97fe87f91487bdd174f6d7b6ddcca41f4
             modelBuilder.Entity("Wakeel.Domain.Entities.User", b =>
                 {
                     b.Property<Guid>("Id")
@@ -168,14 +162,8 @@ namespace Wakeel.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
-<<<<<<< HEAD
-                    b.Property<string>("Role")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-=======
                     b.Property<int>("Role")
                         .HasColumnType("int");
->>>>>>> a1e16be97fe87f91487bdd174f6d7b6ddcca41f4
 
                     b.HasKey("Id");
 
@@ -200,8 +188,6 @@ namespace Wakeel.Infrastructure.Migrations
                     b.Navigation("User");
                 });
 
-<<<<<<< HEAD
-=======
             modelBuilder.Entity("Wakeel.Domain.Entities.RefreshToken", b =>
                 {
                     b.HasOne("Wakeel.Domain.Entities.User", "User")
@@ -213,7 +199,6 @@ namespace Wakeel.Infrastructure.Migrations
                     b.Navigation("User");
                 });
 
->>>>>>> a1e16be97fe87f91487bdd174f6d7b6ddcca41f4
             modelBuilder.Entity("Wakeel.Domain.Entities.User", b =>
                 {
                     b.HasOne("Wakeel.Domain.Entities.Company", "Company")
@@ -242,11 +227,8 @@ namespace Wakeel.Infrastructure.Migrations
                     b.Navigation("CreatedUsers");
 
                     b.Navigation("EmployeeProfile");
-<<<<<<< HEAD
-=======
 
                     b.Navigation("RefreshTokens");
->>>>>>> a1e16be97fe87f91487bdd174f6d7b6ddcca41f4
                 });
 #pragma warning restore 612, 618
         }
