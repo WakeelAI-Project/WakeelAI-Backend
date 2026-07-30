@@ -16,6 +16,18 @@ public partial class Program
         builder.Services.AddEndpointsApiExplorer();
         builder.Services.AddHealthChecks();
 
+        // TODO: This permissive CORS policy is for development/testing only. 
+        // It must be restricted to specific frontend origins before production.
+        builder.Services.AddCors(options =>
+        {
+            options.AddPolicy("AllowAll", policy =>
+            {
+                policy.AllowAnyOrigin()
+                      .AllowAnyMethod()
+                      .AllowAnyHeader();
+            });
+        });
+
         // Swagger
         builder.Services.AddSwaggerGen(c =>
         {
@@ -66,6 +78,8 @@ public partial class Program
         app.UseSwaggerUI();
 
         app.UseHttpsRedirection();
+
+        app.UseCors("AllowAll");
 
         app.UseAuthentication();
         app.UseAuthorization();
