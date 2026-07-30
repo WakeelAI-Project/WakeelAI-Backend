@@ -1,0 +1,185 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using Wakeel.Application.DTOs.Employees;
+using Wakeel.Application.Interfaces;
+using Wakeel.Application.Interfaces.Repositories;
+using Wakeel.Domain.Entities;
+using Wakeel.Domain.Enums;
+
+namespace Wakeel.Application.Services;
+
+public class EmployeeService : IEmployeeService
+{
+    private readonly IUnitOfWork _unitOfWork;
+    private readonly IPasswordHasher _passwordHasher;
+    private readonly ILogger<EmployeeService> _logger;
+    private readonly IEmailSender _emailSender;
+
+    public EmployeeService(IUnitOfWork unitOfWork, IPasswordHasher passwordHasher, ILogger<EmployeeService> logger, IEmailSender emailSender)
+    {
+        _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
+        _passwordHasher = passwordHasher ?? throw new ArgumentNullException(nameof(passwordHasher));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _emailSender = emailSender ?? throw new ArgumentNullException(nameof(emailSender));
+    }
+
+    public async Task<CreateEmployeeResponse> CreateEmployeeAsync(Guid actorUserId, Guid companyId, CreateEmployeeRequest request, CancellationToken cancellationToken = default)
+    {
+        // Ensure email uniqueness
+        var emailExists = await _unitOfWork.Users.EmailExistsAsync(request.Email, cancellationToken);
+        if (emailExists)
+            throw new InvalidOperationException("email_already_exists");
+
+        var tempPassword = Guid.NewGuid().ToString("N");
+        var hashed = _passwordHasher.HashPassword(tempPassword);
+
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            CompanyId = companyId,
+            Email = request.Email,
+            PasswordHash = hashed,
+            FullName = request.FullName,
+            Phone = string.Empty,
+            Role = UserRole.Employee,
+            IsActive = true,
+            IsEmailConfirmed = false,
+            ActivationToken = string.Empty,
+            ActivationTokenExpiry = DateTime.UtcNow,
+            CreatedByUserId = actorUserId,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        await _unitOfWork.Users.AddAsync(user, cancellationToken);
+
+        var profile = new EmployeeProfile
+        {
+            UserId = user.Id,
+            DepartmentId = Guid.Empty,
+            JobTitle = request.JobTitle,
+            Salary = request.Salary,
+            HireDate = DateOnly.FromDateTime(request.HireDate),
+            NationalId = string.Empty,
+            ContractType = request.ContractType
+        };
+
+        await _unitOfWork.EmployeeProfiles.AddAsync(profile, cancellationToken);
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        // send email with credentials
+        var subject = "You're added to Wakeel as an employee";
+        var body = $"<p>Hello {user.FullName},</p><p>Your account has been created. Login: <strong>{user.Email}</strong> and temporary password: <strong>{tempPassword}</strong>. Please change your password after first login.</p>";
+        try
+        {
+            await _emailSender.SendEmailAsync(user.Email, subject, body, cancellationToken);
+        }
+        catch
+        {
+            _logger.LogWarning("Failed to send employee email to {Email}", user.Email);
+        }
+
+        return new CreateEmployeeResponse
+        {
+            UserId = user.Id,
+            RecordId = profile.UserId,
+            FullName = user.FullName,
+            JobTitle = profile.JobTitle,
+            Salary = profile.Salary,
+            EmploymentStatus = "Active"
+        };
+    }
+
+    public async Task<EmployeeDetailResponse?> GetEmployeeAsync(Guid companyId, Guid recordId, CancellationToken cancellationToken = default)
+    {
+        var profile = await _unitOfWork.EmployeeProfiles.GetByIdAsync(recordId, cancellationToken);
+        if (profile is null)
+            return null;
+
+        var user = await _unitOfWork.Users.GetByIdAsync(profile.UserId, cancellationToken);
+        if (user is null || user.CompanyId != companyId)
+            return null;
+
+        return new EmployeeDetailResponse
+        {
+            RecordId = profile.UserId,
+            UserId = profile.UserId,
+            FullName = user.FullName,
+            Email = user.Email,
+            JobTitle = profile.JobTitle,
+            Department = profile.DepartmentId,
+            HireDate = profile.HireDate,
+            Salary = profile.Salary,
+            ContractType = profile.ContractType,
+            EmploymentStatus = "Active"
+        };
+    }
+
+    public async Task<EmployeeListResponse> ListEmployeesAsync(Guid companyId, string? status, int page, int limit, CancellationToken cancellationToken = default)
+    {
+        page = Math.Max(1, page);
+        limit = Math.Clamp(limit, 1, 100);
+
+        var profiles = await _unitOfWork.EmployeeProfiles.GetAllAsync(cancellationToken);
+
+        var joined = from p in profiles
+                     join u in await _unitOfWork.Users.GetAllAsync(cancellationToken) on p.UserId equals u.Id
+                     where u.CompanyId == companyId
+                     select new EmployeeListItem
+                     {
+                         RecordId = p.UserId,
+                         FullName = u.FullName,
+                         JobTitle = p.JobTitle
+                     };
+
+        var list = joined.ToList();
+        var total = list.Count;
+        var items = list.Skip((page - 1) * limit).Take(limit).ToList();
+
+        return new EmployeeListResponse
+        {
+            Data = items,
+            Page = page,
+            Total = total
+        };
+    }
+
+    public async Task<EmployeeDetailResponse?> UpdateEmployeeAsync(Guid companyId, Guid recordId, UpdateEmployeeRequest request, CancellationToken cancellationToken = default)
+    {
+        var profile = await _unitOfWork.EmployeeProfiles.GetByIdAsync(recordId, cancellationToken);
+        if (profile is null)
+            return null;
+
+        var user = await _unitOfWork.Users.GetByIdAsync(profile.UserId, cancellationToken);
+        if (user is null || user.CompanyId != companyId)
+            return null;
+
+        if (!string.IsNullOrWhiteSpace(request.JobTitle))
+            profile.JobTitle = request.JobTitle!;
+        if (request.Salary.HasValue)
+            profile.Salary = request.Salary.Value;
+        if (!string.IsNullOrWhiteSpace(request.ContractType))
+            profile.ContractType = request.ContractType!;
+
+        _unitOfWork.EmployeeProfiles.Update(profile);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return new EmployeeDetailResponse
+        {
+            RecordId = profile.UserId,
+            UserId = profile.UserId,
+            FullName = user.FullName,
+            Email = user.Email,
+            JobTitle = profile.JobTitle,
+            Department = profile.DepartmentId,
+            HireDate = profile.HireDate,
+            Salary = profile.Salary,
+            ContractType = profile.ContractType,
+            EmploymentStatus = "Active"
+        };
+    }
+}

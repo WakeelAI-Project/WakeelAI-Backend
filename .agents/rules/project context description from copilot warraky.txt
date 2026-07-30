@@ -1,0 +1,917 @@
+# WakeelAI Backend - AI System Instructions & Coding Guidelines
+
+## Project Context
+- **Framework**: .NET 10 Web API
+- **Architecture**: Clean Architecture (layered)
+- **Database**: SQL Server with Entity Framework Core
+- **Authentication**: JWT-based
+- **Project Structure**:
+  - `Wakeel.Domain` - Entities, Enums, Constants
+  - `Wakeel.Application` - DTOs, Interfaces, Services, Business Logic
+  - `Wakeel.Infrastructure` - Database, Repositories, External Services, Configuration
+  - `Wakeel.API` - Controllers, Middleware, Startup Configuration
+
+---
+
+## 1. ARCHITECTURE & LAYERING
+
+### Clean Architecture Principles
+- **Domain Layer**: Pure business logic, no dependencies on other layers, no framework references (except for enums/constants)
+- **Application Layer**: Service interfaces, business logic orchestration, DTOs, Enums, Exceptions
+- **Infrastructure Layer**: Database context, repositories, external service implementations, configuration
+- **API Layer**: Controllers, request/response mapping, HTTP concerns only
+
+### Layering Rules
+- ✅ **Domain → Application → Infrastructure → API** (dependency direction)
+- ✅ Controllers ONLY call Application Services, never directly access Database
+- ✅ Services ONLY use Interfaces, never concrete implementations (except via DI)
+- ✅ DTOs are the ONLY objects crossing layer boundaries
+- ✅ All database queries happen in Infrastructure (DbContext or Repositories)
+- ❌ Domain entities NEVER contain business logic that queries the database
+- ❌ Never return Entity objects from APIs; always map to DTOs first
+
+### Repository & Unit of Work Pattern
+- Use `IRepository<T>` for data access abstraction (or simple DbContext queries in early stages)
+- Repository methods should be async: `Task<T> GetByIdAsync(Guid id, CancellationToken ct)`
+- All DbContext operations wrapped with proper async/await and cancellation tokens
+- Repositories inherit from `IRepository<T>` interface defined in Application layer
+
+### DTOs (Data Transfer Objects)
+- **Location**: `Wakeel.Application/DTOs/{FeatureName}/{DtoName}.cs`
+- **Naming Convention**:
+  - Request DTOs: `{FeatureName}Request.cs` (e.g., `RegisterCompanyRequest.cs`)
+  - Response DTOs: `{FeatureName}Response.cs` (e.g., `RegisterCompanyResponse.cs`)
+- **Implementation**:
+  - Use `record` types for immutable DTOs (preferred for simple data transfer)
+  - Use `class` for mutable DTOs (when necessary)
+  - All properties should have init accessors for records
+- **JSON Serialization**:
+  - Use `[JsonPropertyName("snake_case")]` attributes for API contracts
+  - Default serialization: PascalCase in C#, snake_case in JSON
+
+### Service Layer
+- **Location**: `Wakeel.Application/Services/{ServiceName}.cs`
+- **Interface Location**: `Wakeel.Application/Interfaces/I{ServiceName}.cs`
+- **Rule**: Create interface FIRST, then implementation
+- Services are registered as `Scoped` in DI container
+- Services use constructor injection for all dependencies
+- Service methods should return meaningful result objects or enums (not raw primitives)
+
+---
+
+## 2. CODE STYLE & NAMING CONVENTIONS
+
+### C# Naming Standards (PascalCase, camelCase, etc.)
+```
+✅ Classes, Interfaces, Methods, Properties: PascalCase
+   public class UserService { }
+   public interface IAuthService { }
+   public string CompanyName { get; set; }
+
+✅ Private fields, local variables, parameters: camelCase
+   private string _companyName;
+   var companyId = Guid.NewGuid();
+
+✅ Constants: UPPER_SNAKE_CASE
+   private const int MaxPasswordLength = 128;
+   private const string DefaultTimeZone = "UTC";
+
+✅ Async method names: End with "Async"
+   public async Task<User> GetUserByIdAsync(Guid id)
+   public async Task RegisterCompanyAsync(RegisterCompanyRequest request)
+
+✅ Boolean properties/methods: Start with "Is", "Has", "Can", "Should"
+   public bool IsActive { get; set; }
+   public bool HasEmailConfirmed { get; set; }
+   public Task<bool> CanUserAccessCompanyAsync(Guid userId, Guid companyId)
+```
+
+### Naming Conventions by Type
+- **Entities**: Singular noun (User, Company, EmployeeProfile)
+- **Collections**: Plural noun or collection suffix (users, companies, Users, Companies)
+- **Interfaces**: Start with "I" (IAuthService, IPasswordHasher, IRepository<T>)
+- **Enums**: Singular noun (UserRole, AuthResultStatus, PaymentStatus)
+- **DTOs**: `{Feature}{Operation}Dto` or `{Feature}{Operation}Request/Response`
+- **Services**: `{Domain}Service` (AuthService, UserService, CompanyService)
+- **Repositories**: `{Entity}Repository` (UserRepository, CompanyRepository)
+- **Exceptions**: End with "Exception" (InvalidCredentialsException, CompanyNotFoundException)
+
+### File Organization
+```
+WakeelAI/
+├── Wakeel.Domain/
+│   ├── Entities/
+│   │   ├── User.cs
+│   │   ├── Company.cs
+│   │   └── EmployeeProfile.cs
+│   ├── Enums/
+│   │   ├── UserRole.cs
+│   │   └── AuthResultStatus.cs
+│   └── Constants/
+│       └── ValidationConstants.cs
+├── Wakeel.Application/
+│   ├── DTOs/
+│   │   └── Auth/
+│   │       ├── RegisterCompanyRequest.cs
+│   │       └── RegisterCompanyResponse.cs
+│   ├── Interfaces/
+│   │   ├── IAuthService.cs
+│   │   ├── IPasswordHasher.cs
+│   │   └── IJwtTokenGenerator.cs
+│   ├── Services/
+│   │   └── AuthService.cs
+│   ├── Enums/
+│   │   └── AuthResultStatus.cs
+│   └── ApplicationServiceCollectionExtensions.cs
+├── Wakeel.Infrastructure/
+│   ├── Security/
+│   │   └── BCryptPasswordHasher.cs
+│   ├── Persistence/
+│   │   ├── ApplicationDbContext.cs
+│   │   └── Configurations/
+│   │       ├── UserConfiguration.cs
+│   │       └── CompanyConfiguration.cs
+│   └── InfrastructureServiceCollectionExtensions.cs
+└── Wakeel.API/
+    ├── Controllers/
+    │   └── AuthController.cs
+    ├── Middleware/
+    └── Program.cs
+```
+
+---
+
+## 3. SOLID PRINCIPLES & CLEAN CODE
+
+### Single Responsibility Principle (SRP)
+- Each class should have ONE reason to change
+- A service should do ONE thing (e.g., AuthService handles auth, not email sending)
+- Separate concerns: validation, business logic, data access, logging
+
+### Open/Closed Principle (OCP)
+- Classes should be open for extension, closed for modification
+- Use interfaces and abstract classes for extension points
+- Use enums instead of string comparisons for extensibility
+
+### Liskov Substitution Principle (LSP)
+- Derived classes must be substitutable for base classes
+- Example: Any `IRepository<T>` implementation must work in place of another
+- Don't violate interface contracts in implementations
+
+### Interface Segregation Principle (ISP)
+- Create small, focused interfaces instead of large "fat" interfaces
+- ✅ `IPasswordHasher` with 2 methods
+- ❌ `IUserService` with 20+ methods (split into smaller interfaces)
+
+### Dependency Inversion Principle (DIP)
+- Depend on abstractions (interfaces), not concrete implementations
+- All dependencies should be injected via constructor
+- Register services in `Program.cs` using extension methods
+
+### Clean Code Practices
+- **Method Length**: Keep methods under 30 lines (prefer smaller)
+- **Method Parameters**: Max 3-4 parameters (use objects/records for multiple related params)
+- **Cyclomatic Complexity**: Avoid deeply nested if/switch statements (max 3 levels)
+- **No Magic Numbers**: Use named constants instead
+- **No God Objects**: If a class has 5+ responsibilities, refactor it
+- **Guard Clauses**: Return early to reduce nesting
+```csharp
+// ✅ Good: Guard clause (early return)
+if (string.IsNullOrEmpty(email))
+    return null;
+// ... rest of logic
+
+// ❌ Bad: Nested condition
+if (!string.IsNullOrEmpty(email)) {
+      // ... lots of nested logic
+  }
+```
+- **One Thing Per Method**: A method should do exactly what its name says
+- **Meaningful Variable Names**: `user` instead of `u`, `companyId` instead of `cid`
+
+---
+
+## 4. COMMENTING STYLE
+
+### XML Documentation (Public APIs)
+- **Required for**: All public classes, interfaces, methods, and properties
+- **Location**: Directly above the declaration
+- **Format**: `/// <summary>`, `/// <param>`, `/// <returns>`, `/// <exception>`
+
+```csharp
+/// <summary>
+/// Registers a new company and its admin user asynchronously.
+/// Creates a Company entity with an associated Owner-role User and stores hashed credentials.
+/// </summary>
+/// <param name="request">The registration request containing company name and admin credentials.</param>
+/// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+/// <returns>
+/// A tuple containing:
+/// - IsSuccess: Whether the registration was successful.
+/// - Data: The response containing CompanyId, UserId, and tokens (null if failed).
+/// - ErrorMessage: A descriptive error message if registration failed (null if successful).
+/// - Status: An AuthResultStatus enum indicating the result of the operation.
+/// </returns>
+/// <exception cref="ArgumentNullException">Thrown if request is null.</exception>
+public async Task<(bool IsSuccess, RegisterCompanyResponse? Data, string? ErrorMessage, AuthResultStatus Status)> RegisterCompanyAsync(
+    RegisterCompanyRequest request,
+    CancellationToken cancellationToken = default
+)
+```
+
+### Inline Comments
+- **Use sparingly**: Only for complex business logic or non-obvious code
+- **Explain WHY, not WHAT**: The code shows what; comments explain why
+- **Keep brief**: Single-line comments preferred over multi-line
+
+```csharp
+// ✅ Good: Explains the business reason
+// Cost factor 12 makes brute-force attacks computationally expensive (~250ms per attempt)
+return BC.HashPassword(password, workFactor: WorkFactor);
+
+// ✅ Good: Explains non-obvious logic
+// Check email uniqueness before creating company to prevent duplicate key exceptions
+var emailExists = await _dbContext.Users.AnyAsync(u => u.Email == request.Email);
+
+// ❌ Bad: Restates the code
+// Hash the password
+var hash = _passwordHasher.HashPassword(password);
+```
+
+### Region Comments
+- Use `#region` only for large sections (50+ lines)
+- **Preferred approach**: Use meaningful method names instead of regions
+
+```csharp
+// ✅ Acceptable for large blocks
+#region Private Helper Methods
+
+private string NormalizeEmail(string email)
+{
+    // ...
+}
+
+#endregion
+```
+
+### TODO/FIXME Comments
+- Mark with `// TODO:`, `// FIXME:`, `// HACK:`
+- Include a brief explanation
+- Create GitHub issues for these instead of leaving in code long-term
+
+```csharp
+// TODO: Implement email confirmation flow when email service is available
+// FIXME: This query has O(n) complexity; optimize with indexing
+// HACK: Temporary workaround for missing migration; remove after DB is updated
+```
+
+---
+
+## 5. ERROR HANDLING & LOGGING
+
+### Exception Handling Strategy
+- **Domain Layer**: Define custom exceptions (e.g., `InvalidCredentialsException`)
+- **Application Layer**: Catch domain exceptions, convert to result objects (enums/tuples)
+- **Infrastructure Layer**: Catch and log database exceptions, convert to application exceptions
+- **API Layer**: Map application results to HTTP status codes
+
+```csharp
+// Domain Exception
+public class InvalidCredentialsException : Exception
+{
+    public InvalidCredentialsException(string message) : base(message) { }
+}
+
+// Service Method (Application Layer)
+try
+{
+    // Business logic
+}
+catch (DbUpdateException ex)
+{
+    _logger.LogError(ex, "Database error during registration");
+    return (IsSuccess: false, Data: null, ErrorMessage: "Database error", Status: AuthResultStatus.Failure);
+}
+catch (Exception ex)
+{
+    _logger.LogError(ex, "Unexpected error during registration");
+    return (IsSuccess: false, Data: null, ErrorMessage: "Unexpected error", Status: AuthResultStatus.Failure);
+}
+```
+
+### Logging Standards
+- **Log Levels**:
+  - `LogError`: Exceptions, critical failures, security issues
+  - `LogWarning`: Validation failures, duplicate records, suspicious activities
+  - `LogInformation`: Successful operations, state changes, milestone events
+  - `LogDebug`: Detailed flow information (only in development)
+  - `LogTrace`: Very detailed diagnostic info (rarely used)
+
+- **Structured Logging**: Use named parameters, not string interpolation
+```csharp
+// ✅ Good: Structured logging (enables filtering/searching)
+_logger.LogInformation("User registered successfully. UserId: {UserId}, Email: {Email}", userId, email);
+
+// ❌ Bad: String interpolation
+_logger.LogInformation($"User registered successfully. UserId: {userId}, Email: {email}");
+```
+
+- **What to Log**:
+  - Operation start/completion
+  - Failed validations (WARNING level)
+  - Exceptions with full context
+  - Security-relevant events (login attempts, authorization failures)
+  - Performance-critical operations
+
+- **What NOT to Log**:
+  - Passwords, tokens, or sensitive personal data
+  - Entire request/response bodies (only summary info)
+  - Verbose debug info in production
+
+- **Logger Injection Pattern**:
+```csharp
+public class AuthService
+{
+    private readonly ILogger<AuthService> _logger;
+    
+      public AuthService(ILogger<AuthService> logger)
+      {
+          _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+      }
+  }
+```
+
+### Try-Catch Guidelines
+- Catch **specific** exceptions, not generic `Exception`
+- **Re-throw with context** if you can't handle it:
+```csharp
+catch (DbUpdateException ex)
+{
+    _logger.LogError(ex, "Failed to save user: {UserId}", userId);
+    throw new RegistrationFailedException("Database error during registration", ex);
+  }
+```
+- **Never swallow exceptions** silently
+
+---
+
+## 6. RESPONSE FORMATS & FILE PATHS
+
+### Code Block Format in Responses
+- **Always include full file path** as markdown code fence header
+- **Never use placeholder comments** like `// rest of code...`
+- **Provide COMPLETE, production-ready code**
+
+```
+Format:
+```
+WakeelAI/Wakeel.Application/Services/AuthService.cs
+// Full, complete code here
+```
+
+```
+
+### Standard Response Template
+When generating code files, follow this structure:
+
+1. **File Path Header** (exact relative path from solution root)
+2. **Using Statements** (organized, no unused imports)
+3. **Namespace** (matches folder structure)
+4. **XML Documentation** (for public types/methods)
+5. **Class/Interface Definition** (with clean formatting)
+6. **Complete Implementation** (no TODOs unless explicitly requested)
+
+### API Response Format
+- **Success (2xx)**: Return data object
+```json
+{
+    "company_id": "uuid",
+    "user_id": "uuid",
+    "role": "Owner",
+    "access_token": "token_string",
+    "refresh_token": "token_string"
+  }
+```
+
+- **Validation Error (400)**:
+```json
+{
+    "message": "Validation failed. Please check the errors below.",
+    "errors": [
+      "Email must be a valid email address.",
+      "Password must be at least 8 characters long."
+    ]
+  }
+```
+
+- **Conflict (409)**:
+```json
+{
+    "message": "The provided email is already registered."
+  }
+```
+
+- **Server Error (500)**:
+```json
+{
+    "message": "An unexpected error occurred. Please contact support."
+  }
+```
+
+---
+
+## 7. ENTITY FRAMEWORK & DATABASE
+
+### DbContext Usage
+- Keep DbContext in Infrastructure layer
+- Expose DbSets for each entity
+- Use `ApplyConfigurationsFromAssembly()` to auto-load Entity Type Configurations
+- All database operations must be async
+
+```csharp
+public class ApplicationDbContext : DbContext
+{
+    public DbSet<Company> Companies { get; set; } = null!;
+    public DbSet<User> Users { get; set; } = null!;
+    
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+        modelBuilder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
+    }
+}
+```
+
+### Entity Configurations (Fluent API)
+- Use Entity Type Configurations for each entity
+- Location: `Infrastructure/Persistence/Configurations/{EntityName}Configuration.cs`
+- Define constraints, indexes, relationships here, NOT in entity class
+
+```csharp
+public class UserConfiguration : IEntityTypeConfiguration<User>
+{
+    public void Configure(EntityTypeBuilder<User> builder)
+    {
+        builder.HasKey(u => u.Id);
+        
+        builder.Property(u => u.Email)
+            .IsRequired()
+            .HasMaxLength(256);
+        
+        builder.HasIndex(u => u.Email).IsUnique();
+        
+        builder.HasOne(u => u.Company)
+            .WithMany(c => c.Users)
+            .HasForeignKey(u => u.CompanyId)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+}
+```
+
+### Async Queries
+- **ALWAYS use async** methods: `AnyAsync()`, `FirstOrDefaultAsync()`, `ToListAsync()`, `SaveChangesAsync()`
+- **ALWAYS pass** `CancellationToken` to async methods
+- Never use `.Result` or `.Wait()` on tasks
+
+```csharp
+// ✅ Good
+var exists = await _dbContext.Users
+    .AnyAsync(u => u.Email == email, cancellationToken);
+
+// ❌ Bad
+var exists = _dbContext.Users
+    .Any(u => u.Email == email);
+```
+
+### Migrations
+- Use EF Core Code-First migrations
+- Command: `dotnet ef migrations add {MigrationName} --project Wakeel.Infrastructure --startup-project Wakeel.API`
+- Always review generated migrations before committing
+- Provide meaningful migration names: `AddTaxIdToCompany`, `CreateUserTable`, etc.
+
+---
+
+## 8. DTOs AND DATA TRANSFER
+
+### DTO Design
+- **Request DTOs**: Use `init` accessors, validation attributes
+- **Response DTOs**: Immutable records preferred
+- **Conversion**: Map entities to DTOs explicitly in services, never return entities
+
+```csharp
+// ✅ Good: Explicit mapping in service
+var response = new RegisterCompanyResponse
+{
+    CompanyId = company.Id,
+    UserId = user.Id,
+    Role = user.Role.ToString(),
+    AccessToken = accessToken,
+    RefreshToken = refreshToken
+};
+
+// ❌ Bad: Returning entity directly
+return Ok(company);
+```
+
+### JSON Property Naming
+- **C# Properties**: PascalCase (CompanyName, OwnerEmail)
+- **JSON Properties**: snake_case (company_name, owner_email)
+- **Mapping**: Use `[JsonPropertyName("snake_case")]` attributes
+
+```csharp
+public record RegisterCompanyRequest
+{
+    [JsonPropertyName("company_name")]
+    public string CompanyName { get; init; }
+    
+    [JsonPropertyName("owner_email")]
+    public string OwnerEmail { get; init; }
+}
+```
+
+### Validation in DTOs
+- Use Data Annotations for input validation: `[Required]`, `[EmailAddress]`, `[MinLength(8)]`
+- Validation happens automatically in controllers via model validation
+- Complex business validation happens in services
+
+```csharp
+public record RegisterCompanyRequest
+{
+    [Required(ErrorMessage = "Company name is required.")]
+    public string CompanyName { get; init; }
+    
+    [Required(ErrorMessage = "Email is required.")]
+    [EmailAddress(ErrorMessage = "Email must be valid.")]
+    public string Email { get; init; }
+}
+```
+
+---
+
+## 9. ASYNC/AWAIT PATTERNS
+
+### Async Method Naming & Signatures
+- **Naming**: End with `Async` suffix
+- **Return Type**: `Task` or `Task<T>` (never `void` except event handlers)
+- **CancellationToken**: Always accept optional `CancellationToken` parameter
+
+```csharp
+// ✅ Good: Proper async signature
+public async Task<User> GetUserByIdAsync(Guid id, CancellationToken cancellationToken = default)
+{
+    return await _dbContext.Users
+        .FirstOrDefaultAsync(u => u.Id == id, cancellationToken);
+}
+
+// ❌ Bad: No cancellation token
+public async Task<User> GetUserById(Guid id)
+
+// ❌ Bad: Void async (only for event handlers)
+public async void HandleUserCreated()
+```
+
+### ConfigureAwait Usage
+- Use `.ConfigureAwait(false)` in library/service code (not UI code)
+- Reduces context-switching overhead
+
+```csharp
+var user = await _dbContext.Users
+    .FirstOrDefaultAsync(u => u.Id == id, cancellationToken)
+    .ConfigureAwait(false);
+```
+
+### Task Composition
+- Prefer `await` over `.Result`
+- Use `Task.WhenAll()` for parallel operations
+- Never use `.Wait()` on async methods
+
+---
+
+## 10. DEPENDENCY INJECTION
+
+### Service Registration
+- Use extension methods in `{Layer}ServiceCollectionExtensions.cs`
+- Register in correct layer: Infrastructure services in `Infrastructure`, Application services in `Application`
+- Call extensions in correct order in `Program.cs`
+
+```csharp
+// Wakeel.Application/ApplicationServiceCollectionExtensions.cs
+public static IServiceCollection AddApplicationServices(this IServiceCollection services)
+{
+    services.AddScoped<IAuthService, AuthService>();
+    return services;
+}
+
+// Wakeel.Infrastructure/InfrastructureServiceCollectionExtensions.cs
+public static IServiceCollection AddInfrastructureServices(this IServiceCollection services)
+{
+    services.AddScoped<IPasswordHasher, BCryptPasswordHasher>();
+    services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>();
+    return services;
+}
+
+// Program.cs
+builder.Services.AddApplicationServices();
+builder.Services.AddInfrastructureServices();
+```
+
+### Lifetime Management
+- **Transient**: New instance every time (stateless utilities)
+- **Scoped**: New instance per HTTP request (DbContext, services, repositories)
+- **Singleton**: One instance for application lifetime (configuration, logging)
+
+```csharp
+services.AddScoped<IAuthService, AuthService>();           // Per-request
+services.AddTransient<IValidator, Validator>();            // Every time
+services.AddSingleton<IConfiguration>(Configuration);       // Once
+```
+
+### Constructor Injection with Primary Constructors
+- Use C# 12 primary constructors in classes and records
+- Inject all dependencies, validate non-null
+
+```csharp
+public class AuthService(
+    ApplicationDbContext dbContext,
+    IPasswordHasher passwordHasher,
+    IJwtTokenGenerator tokenGenerator,
+    ILogger<AuthService> logger
+) : IAuthService
+{
+    private readonly ApplicationDbContext _dbContext = dbContext 
+        ?? throw new ArgumentNullException(nameof(dbContext));
+    private readonly IPasswordHasher _passwordHasher = passwordHasher 
+        ?? throw new ArgumentNullException(nameof(passwordHasher));
+    
+    // ... implementation
+}
+```
+
+---
+
+## 11. CUSTOM ENUMS & RESULT OBJECTS
+
+### Enum Usage
+- Use enums for fixed sets of values (user roles, statuses, result types)
+- Avoid "magic strings" and magic numbers
+- Define enums in Domain layer
+
+```csharp
+// ✅ Domain/Enums/UserRole.cs
+public enum UserRole
+{
+    Owner = 1,
+    HR = 2,
+    Employee = 3
+}
+
+// ✅ Application/Enums/AuthResultStatus.cs
+public enum AuthResultStatus
+{
+    Success = 0,
+    EmailAlreadyExists = 1,
+    ValidationError = 2,
+    Failure = 3
+}
+```
+
+### Result/Outcome Objects
+- Use tuple returns for operations with multiple outcomes
+- Alternative: Create result record classes for complex scenarios
+
+```csharp
+// ✅ Simple result: Tuple return
+Task<(bool IsSuccess, RegisterCompanyResponse? Data, string? ErrorMessage, AuthResultStatus Status)> RegisterCompanyAsync()
+
+// ✅ Complex result: Result<T> record
+public record Result<T>(bool IsSuccess, T? Data, string? ErrorMessage, int StatusCode);
+```
+
+---
+
+## 12. API CONTROLLER BEST PRACTICES
+
+### Controller Structure
+- One controller per feature/domain
+- Use route attributes: `[ApiController]`, `[Route("api/[controller]")]`
+- Use primary constructors for DI
+- Map HTTP methods correctly: `[HttpGet]`, `[HttpPost]`, `[HttpPut]`, `[HttpDelete]`
+
+```csharp
+[ApiController]
+[Route("api/[controller]")]
+public class AuthController(IAuthService authService) : ControllerBase
+{
+    [HttpPost("register-company")]
+    public async Task<ActionResult<RegisterCompanyResponse>> RegisterCompany(...)
+}
+```
+
+### Action Method Signatures
+- Return `ActionResult<T>` or `IActionResult`
+- Async methods end with `Async`
+- Accept `CancellationToken` as optional parameter
+
+```csharp
+[HttpPost("register-company")]
+public async Task<ActionResult<RegisterCompanyResponse>> RegisterCompany(
+    [FromBody] RegisterCompanyRequest request,
+    CancellationToken cancellationToken
+)
+```
+
+### HTTP Status Codes
+- `200 OK`: GET successful, data returned
+- `201 Created`: POST successful, new resource created
+- `204 No Content`: DELETE successful
+- `400 Bad Request`: Validation error
+- `401 Unauthorized`: Authentication required
+- `403 Forbidden`: Authorized but insufficient permissions
+- `404 Not Found`: Resource doesn't exist
+- `409 Conflict`: Email already exists, business rule violation
+- `500 Internal Server Error`: Unexpected server error
+
+### Model Validation in Controllers
+- Use `if (!ModelState.IsValid)` to check validation results
+- Return detailed error messages
+
+```csharp
+if (!ModelState.IsValid)
+{
+    var errors = ModelState.Values
+        .SelectMany(v => v.Errors)
+        .Select(e => e.ErrorMessage)
+        .ToList();
+
+    return BadRequest(new ErrorResponse
+    {
+        Message = "Validation failed",
+        Errors = errors
+    });
+}
+```
+
+### ProducesResponseType Attributes
+- Document all possible response types and status codes
+- Enables better Swagger/OpenAPI documentation
+
+```csharp
+[ProducesResponseType(typeof(RegisterCompanyResponse), StatusCodes.Status201Created)]
+[ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+[ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status409Conflict)]
+public async Task<ActionResult<RegisterCompanyResponse>> RegisterCompany(...)
+```
+
+---
+
+## 13. TESTING GUIDELINES
+
+### Test Project Structure
+- Mirror production structure: `Wakeel.Tests.Unit`, `Wakeel.Tests.Integration`
+- Test naming: `{MethodName}_Given{Precondition}_Should{ExpectedOutcome}`
+
+```csharp
+// ✅ Good test name
+[Test]
+public async Task RegisterCompanyAsync_GivenDuplicateEmail_ShouldReturnEmailAlreadyExists()
+
+// ✅ Good test name
+[Test]
+public async Task RegisterCompanyAsync_GivenValidRequest_ShouldCreateCompanyAndUser()
+
+// ❌ Bad test name
+[Test]
+public void TestRegisterCompany()
+```
+
+### Unit Test Structure (AAA Pattern)
+- **Arrange**: Set up test data and mocks
+- **Act**: Execute the method being tested
+- **Assert**: Verify the results
+
+```csharp
+[Test]
+public async Task RegisterCompanyAsync_GivenValidRequest_ShouldReturnSuccess()
+{
+    // Arrange
+    var request = new RegisterCompanyRequest
+    {
+        CompanyName = "Test Corp",
+        TaxId = "123456789",
+        OwnerFullName = "John Doe",
+        OwnerEmail = "john@test.com",
+        Password = "SecurePass123!"
+    };
+    
+    // Act
+    var result = await _authService.RegisterCompanyAsync(request);
+    
+    // Assert
+    Assert.That(result.IsSuccess, Is.True);
+    Assert.That(result.Status, Is.EqualTo(AuthResultStatus.Success));
+    Assert.That(result.Data, Is.Not.Null);
+}
+```
+
+### Mocking
+- Mock external dependencies: DbContext, password hashers, token generators
+- Use interfaces for all dependencies to enable mocking
+- Verify service behavior, not implementation details
+
+---
+
+## 14. SECURITY CONSIDERATIONS
+
+### Password Security
+- **Never store plaintext passwords** – always hash
+- **Use BCrypt** with work factor 12+ (industry standard)
+- **Always validate** password strength (min 8 chars, complexity rules)
+- **Hash immediately** upon receiving password in service layer
+
+### Token Security
+- **JWT tokens**: Include user ID, role, company ID
+- **Expiration**: Short-lived access tokens (15-60 min), long-lived refresh tokens (7-30 days)
+- **Storage**: Never log tokens, validate tokens on every request
+- **HTTPS only**: All token transmission must be encrypted
+
+### Email/PII Security
+- **Unique constraint** on email to prevent duplicates
+- **Never log emails or sensitive data** in production
+- **Encrypt in database** if required by business logic
+
+### Input Validation
+- **Always validate** on API layer (DTOs with annotations)
+- **Never trust user input** – sanitize/validate in services
+- **Reject empty/whitespace** strings: `string.IsNullOrWhiteSpace()`
+
+```csharp
+// ✅ Good: Validate in DTO
+[Required(ErrorMessage = "Email is required.")]
+[EmailAddress(ErrorMessage = "Email must be valid.")]
+public string OwnerEmail { get; init; }
+
+// ✅ Good: Additional validation in service
+if (string.IsNullOrWhiteSpace(request.CompanyName))
+    return failure;
+```
+
+---
+
+## 15. PERFORMANCE & OPTIMIZATION
+
+### Database Query Optimization
+- **Include related data** only when needed: `.Include(u => u.Company)`
+- **Select specific columns** to reduce data transfer
+- **Use indexes** on frequently queried columns (Email, CompanyId)
+- **Avoid N+1 queries**: Use Include or separate queries with proper async patterns
+
+```csharp
+// ✅ Good: Include related data
+var user = await _dbContext.Users
+    .Include(u => u.Company)
+    .FirstOrDefaultAsync(u => u.Id == id, cancellationToken);
+
+// ❌ Bad: N+1 query problem
+var users = await _dbContext.Users.ToListAsync();
+foreach (var user in users)
+{
+    var company = await _dbContext.Companies.FirstOrDefaultAsync(c => c.Id == user.CompanyId);
+    // ... process
+}
+```
+
+### Caching Strategy
+- Cache frequently accessed data (company settings, user roles)
+- Cache with expiration to maintain data consistency
+- Use `IDistributedCache` or in-memory cache appropriately
+
+### Async All the Way
+- Don't block async operations
+- Use `await` properly, never `.Result` or `.Wait()`
+- Pass `CancellationToken` through the entire call stack
+
+---
+
+## 16. VERSION CONTROL & GIT
+
+### Commit Message Format
+```
+<type>(<scope>): <subject>
+
+<body>
+
+<footer>
+```
+
+Examples:
+
+```
+feat(auth): implement company registration endpoint
+fix(auth): handle duplicate email in register flow
+refactor(auth): extract password validation to separate method
+docs(auth): add API documentation for register-company endpoint
+```
+
+### Branch Naming
+- Feature branches: `feature/{feature-name}` (e.g., `feature/auth-register`)
+- Bug fixes: `bugfix/{issue-name}`

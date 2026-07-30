@@ -13,6 +13,10 @@ public class ApplicationDbContext : DbContext
     public DbSet<Company> Companies { get; set; } = null!;
     public DbSet<User> Users { get; set; } = null!;
     public DbSet<EmployeeProfile> EmployeeProfiles { get; set; } = null!;
+<<<<<<< HEAD
+=======
+    public DbSet<RefreshToken> RefreshTokens { get; set; } = null!;
+>>>>>>> a1e16be97fe87f91487bdd174f6d7b6ddcca41f4
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
