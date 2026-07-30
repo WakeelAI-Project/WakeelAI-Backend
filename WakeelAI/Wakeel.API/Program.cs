@@ -79,6 +79,15 @@ public partial class Program
 
         app.UseHttpsRedirection();
 
+        // Ensure wwwroot exists so StaticFileMiddleware can serve files, even if created lazily later
+        var webRoot = app.Environment.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+        if (!Directory.Exists(webRoot))
+        {
+            Directory.CreateDirectory(webRoot);
+        }
+        
+        app.UseStaticFiles();
+
         app.UseCors("AllowAll");
 
         app.UseAuthentication();
