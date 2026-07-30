@@ -3,17 +3,6 @@ using System.Collections.Generic;
 
 namespace Wakeel.Domain.Entities;
 
-<<<<<<< HEAD
-public class Company
-{
-    public Guid Id { get; set; }
-    public string Name { get; set; } = string.Empty;
-    public string Industry { get; set; } = string.Empty;
-    public string Address { get; set; } = string.Empty;
-    public DateTime RegisteredAt { get; set; }
-    public bool IsActive { get; set; }
-
-=======
 /// <summary>
 /// Represents a company entity in the system.
 /// Contains basic company information and relationships to users and employee profiles.
@@ -58,6 +47,5 @@ public class Company
     /// <summary>
     /// Navigation property: Collection of users belonging to this company.
     /// </summary>
->>>>>>> a1e16be97fe87f91487bdd174f6d7b6ddcca41f4
     public ICollection<User> Users { get; set; } = new List<User>();
 }
