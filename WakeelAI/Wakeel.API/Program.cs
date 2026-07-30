@@ -1,5 +1,5 @@
 using Microsoft.OpenApi.Models;
-using Scalar.AspNetCore;
+// using Scalar.AspNetCore;
 using Wakeel.Application;
 using Wakeel.Infrastructure;
 
@@ -46,7 +46,7 @@ public partial class Program
         });
 
         // OpenAPI
-        builder.Services.AddOpenApi();
+        // builder.Services.AddOpenApi();
 
         // Application & Infrastructure
         builder.Services.AddApplicationServices();
@@ -55,11 +55,11 @@ public partial class Program
         var app = builder.Build();
 
         // OpenAPI & Scalar
-        if (app.Environment.IsDevelopment())
-        {
-            app.MapOpenApi();
-            app.MapScalarApiReference();
-        }
+        // if (app.Environment.IsDevelopment())
+        // {
+        //     app.MapOذpenApi();
+        //     app.MapScalarApiReference();
+        // }
 
         // Swagger
         app.UseSwagger();

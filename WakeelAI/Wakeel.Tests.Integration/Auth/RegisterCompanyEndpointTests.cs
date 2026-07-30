@@ -1,9 +1,9 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.Http.Json;
 using FluentAssertions;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Xunit;
-
+using Wakeel.API;
 namespace Wakeel.Tests.Integration.Auth;
 
 public class RegisterCompanyEndpointTests : IClassFixture<WebApplicationFactory<Program>>
