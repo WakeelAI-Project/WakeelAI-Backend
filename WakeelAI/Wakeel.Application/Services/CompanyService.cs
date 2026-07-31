@@ -45,11 +45,20 @@ public class CompanyService : ICompanyService
         if (company == null)
             throw new InvalidOperationException("company_not_found");
 
-        company.Address = request.Address ?? string.Empty;
-        company.PhoneNumber = request.PhoneNumber ?? string.Empty;
-        company.Email = request.Email ?? string.Empty;
-        company.Industry = request.Industry ?? string.Empty;
-        company.WorkingHours = request.WorkingHours ?? string.Empty;
+        if (request.IsAddressProvided)
+            company.Address = request.Address ?? string.Empty;
+        
+        if (request.IsPhoneNumberProvided)
+            company.PhoneNumber = request.PhoneNumber ?? string.Empty;
+        
+        if (request.IsEmailProvided)
+            company.Email = request.Email ?? string.Empty;
+        
+        if (request.IsIndustryProvided)
+            company.Industry = request.Industry ?? string.Empty;
+        
+        if (request.IsWorkingHoursProvided)
+            company.WorkingHours = request.WorkingHours ?? string.Empty;
 
         if (logoUrl != null)
         {

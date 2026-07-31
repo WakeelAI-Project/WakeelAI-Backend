@@ -66,22 +66,33 @@ public class CompanyController : ControllerBase
                     return BadRequest(new ApiErrorResponse { Error = "file_too_large", Message = "Logo file exceeds the 5MB limit.", Status = 400 });
 
                 // Validate file extension/type
-                var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".webp", ".svg" };
+                var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".webp" };
                 var extension = Path.GetExtension(logo.FileName).ToLowerInvariant();
                 if (string.IsNullOrEmpty(extension) || !allowedExtensions.Contains(extension))
-                    return BadRequest(new ApiErrorResponse { Error = "invalid_file_type", Message = "Only image files (.jpg, .jpeg, .png, .webp, .svg) are allowed.", Status = 400 });
+                    return BadRequest(new ApiErrorResponse { Error = "invalid_file_type", Message = "Only image files (.jpg, .jpeg, .png, .webp) are allowed.", Status = 400 });
 
                 using var stream = logo.OpenReadStream();
                 logoUrl = await _fileService.SaveFileAsync(stream, logo.FileName, "company_logos", cancellationToken);
             }
 
+            var formKeys = Request.Form.Keys.Select(k => k.ToLowerInvariant()).ToHashSet();
+
             var dtoToUpdate = new UpdateCompanyProfileDto
             {
                 Address = request.Address,
+                IsAddressProvided = formKeys.Contains("address"),
+
                 PhoneNumber = request.PhoneNumber,
+                IsPhoneNumberProvided = formKeys.Contains("phone_number") || formKeys.Contains("phonenumber"),
+
                 Email = request.Email,
+                IsEmailProvided = formKeys.Contains("email"),
+
                 Industry = request.Industry,
-                WorkingHours = request.WorkingHours
+                IsIndustryProvided = formKeys.Contains("industry"),
+
+                WorkingHours = request.WorkingHours,
+                IsWorkingHoursProvided = formKeys.Contains("working_hours") || formKeys.Contains("workinghours")
             };
 
             var updatedProfile = await _companyService.UpdateCompanyProfileAsync(companyId, dtoToUpdate, logoUrl, cancellationToken);
