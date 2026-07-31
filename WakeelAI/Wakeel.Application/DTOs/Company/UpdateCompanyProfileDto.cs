@@ -6,18 +6,23 @@ namespace Wakeel.Application.DTOs.Company;
 public record UpdateCompanyProfileDto
 {
     [JsonPropertyName("address")]
-    public string Address { get; init; } = string.Empty;
+    public string? Address { get; init; }
+    public bool IsAddressProvided { get; init; }
 
     [JsonPropertyName("phone_number")]
-    public string PhoneNumber { get; init; } = string.Empty;
+    public string? PhoneNumber { get; init; }
+    public bool IsPhoneNumberProvided { get; init; }
 
     [JsonPropertyName("email")]
     [EmailAddress]
-    public string Email { get; init; } = string.Empty;
+    public string? Email { get; init; }
+    public bool IsEmailProvided { get; init; }
 
     [JsonPropertyName("industry")]
-    public string Industry { get; init; } = string.Empty;
+    public string? Industry { get; init; }
+    public bool IsIndustryProvided { get; init; }
 
     [JsonPropertyName("working_hours")]
-    public string WorkingHours { get; init; } = string.Empty;
+    public string? WorkingHours { get; init; }
+    public bool IsWorkingHoursProvided { get; init; }
 }
