@@ -15,6 +15,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<EmployeeProfile> EmployeeProfiles { get; set; } = null!;
     public DbSet<RefreshToken> RefreshTokens { get; set; } = null!;
     public DbSet<Department> Departments { get; set; } = null!;
+    public DbSet<LeaveBalance> LeaveBalances { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

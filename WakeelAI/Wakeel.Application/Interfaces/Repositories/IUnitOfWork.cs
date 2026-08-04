@@ -35,6 +35,10 @@ public interface IUnitOfWork : IDisposable
     IDepartmentRepository Departments { get; }
 
     /// <summary>
+    /// Gets the repository for <see cref="Wakeel.Domain.Entities.LeaveBalance"/> entities.
+    /// </summary>
+    ILeaveBalanceRepository LeaveBalances { get; }
+    /// <summary>
     /// Persists all pending changes tracked by this unit of work to the database.
     /// </summary>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Wakeel.Domain.Entities;
 
@@ -13,4 +14,5 @@ public class EmployeeProfile
     public string ContractType { get; set; } = string.Empty;
 
     public User User { get; set; } = null!;
+    public ICollection<LeaveBalance> LeaveBalances { get; set; } = new List<LeaveBalance>();
 }
