@@ -148,6 +148,121 @@ public class EmployeeServiceTests
         _unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    // ------------------------------------------------------------
+    // UpdateEmployeeAsync
+    // ------------------------------------------------------------
+
+    [Fact]
+    public async Task UpdateEmployeeAsync_GivenUnknownRecordId_ShouldReturnNull()
+    {
+        // Arrange
+        _employeeProfileRepositoryMock
+            .Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((EmployeeProfile?)null);
+
+        // Act
+        var result = await _sut.UpdateEmployeeAsync(Guid.NewGuid(), Guid.NewGuid(), new UpdateEmployeeRequest());
+
+        // Assert
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task UpdateEmployeeAsync_GivenRecordFromAnotherCompany_ShouldReturnNull()
+    {
+        // Arrange
+        var (profile, user) = CreateProfileAndUser();
+        var otherCompanyId = Guid.NewGuid();
+
+        _employeeProfileRepositoryMock.Setup(r => r.GetByIdAsync(profile.UserId, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
+        _userRepositoryMock.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        // Act
+        var result = await _sut.UpdateEmployeeAsync(otherCompanyId, profile.UserId, new UpdateEmployeeRequest());
+
+        // Assert
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task UpdateEmployeeAsync_GivenHireDateInFuture_ShouldThrowAndNotPersist()
+    {
+        // Arrange
+        var (profile, user) = CreateProfileAndUser();
+
+        _employeeProfileRepositoryMock.Setup(r => r.GetByIdAsync(profile.UserId, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
+        _userRepositoryMock.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        var request = new UpdateEmployeeRequest { HireDate = DateTime.UtcNow.AddDays(1) };
+
+        // Act
+        var act = () => _sut.UpdateEmployeeAsync(user.CompanyId, profile.UserId, request);
+
+        // Assert
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("hire_date_in_future");
+        _unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateEmployeeAsync_GivenPartialFields_ShouldOnlyUpdateProvidedFieldsAndPersist()
+    {
+        // Arrange
+        var (profile, user) = CreateProfileAndUser();
+        var originalContractType = profile.ContractType;
+
+        _employeeProfileRepositoryMock.Setup(r => r.GetByIdAsync(profile.UserId, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
+        _userRepositoryMock.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        var request = new UpdateEmployeeRequest
+        {
+            FullName = "Updated Name",
+            Salary = 20000m,
+            NationalId = "12345678901234"
+        };
+
+        // Act
+        var result = await _sut.UpdateEmployeeAsync(user.CompanyId, profile.UserId, request);
+
+        // Assert
+        result.Should().NotBeNull();
+        result!.FullName.Should().Be("Updated Name");
+        result.Salary.Should().Be(20000m);
+        result.NationalId.Should().Be("12345678901234");
+        result.ContractType.Should().Be(originalContractType);
+
+        _unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        _userRepositoryMock.Verify(r => r.Update(user), Times.Once);
+        _employeeProfileRepositoryMock.Verify(r => r.Update(profile), Times.Once);
+    }
+
+    private static (EmployeeProfile Profile, User User) CreateProfileAndUser()
+    {
+        var companyId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+
+        var user = new User
+        {
+            Id = userId,
+            CompanyId = companyId,
+            Email = "existing@test.com",
+            FullName = "Existing Name",
+            IsActive = true
+        };
+
+        var profile = new EmployeeProfile
+        {
+            UserId = userId,
+            DepartmentId = Guid.Empty,
+            JobTitle = "Analyst",
+            Salary = 10000m,
+            HireDate = DateOnly.FromDateTime(DateTime.UtcNow.AddYears(-1)),
+            ContractType = "Full-Time",
+            NationalId = null
+        };
+
+        return (profile, user);
+    }
+
     private static CreateEmployeeRequest CreateValidRequest()
     {
         return new CreateEmployeeRequest

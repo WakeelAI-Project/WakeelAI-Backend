@@ -29,7 +29,7 @@ public class EmployeeService : IEmployeeService
 
     public async Task<CreateEmployeeResponse> CreateEmployeeAsync(Guid actorUserId, Guid companyId, CreateEmployeeRequest request, CancellationToken cancellationToken = default)
     {
-        if (DateOnly.FromDateTime(request.HireDate) > DateOnly.FromDateTime(DateTime.UtcNow))
+        if (IsInFuture(request.HireDate))
             throw new InvalidOperationException("hire_date_in_future");
 
         // Ensure email uniqueness
@@ -115,6 +115,7 @@ public class EmployeeService : IEmployeeService
             Email = user.Email,
             JobTitle = profile.JobTitle,
             Department = profile.DepartmentId,
+            NationalId = profile.NationalId,
             HireDate = profile.HireDate,
             Salary = profile.Salary,
             ContractType = profile.ContractType,
@@ -161,13 +162,23 @@ public class EmployeeService : IEmployeeService
         if (user is null || user.CompanyId != companyId)
             return null;
 
+        if (IsInFuture(request.HireDate))
+            throw new InvalidOperationException("hire_date_in_future");
+
+        if (!string.IsNullOrWhiteSpace(request.FullName))
+            user.FullName = request.FullName!;
         if (!string.IsNullOrWhiteSpace(request.JobTitle))
             profile.JobTitle = request.JobTitle!;
+        if (request.HireDate.HasValue)
+            profile.HireDate = DateOnly.FromDateTime(request.HireDate.Value);
         if (request.Salary.HasValue)
             profile.Salary = request.Salary.Value;
         if (!string.IsNullOrWhiteSpace(request.ContractType))
             profile.ContractType = request.ContractType!;
+        if (request.NationalId is not null)
+            profile.NationalId = request.NationalId;
 
+        _unitOfWork.Users.Update(user);
         _unitOfWork.EmployeeProfiles.Update(profile);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -179,6 +190,7 @@ public class EmployeeService : IEmployeeService
             Email = user.Email,
             JobTitle = profile.JobTitle,
             Department = profile.DepartmentId,
+            NationalId = profile.NationalId,
             HireDate = profile.HireDate,
             Salary = profile.Salary,
             ContractType = profile.ContractType,
@@ -187,4 +199,7 @@ public class EmployeeService : IEmployeeService
     }
 
     private static string GetEmploymentStatus(bool isActive) => isActive ? "Active" : "Inactive";
+
+    private static bool IsInFuture(DateTime? date) =>
+        date.HasValue && DateOnly.FromDateTime(date.Value) > DateOnly.FromDateTime(DateTime.UtcNow);
 }

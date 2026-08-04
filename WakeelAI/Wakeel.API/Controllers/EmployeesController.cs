@@ -43,15 +43,25 @@ public class EmployeesController(IEmployeeService employeeService) : ControllerB
     [HttpPatch("{recordId:guid}")]
     public async Task<IActionResult> Update([FromRoute] Guid recordId, [FromBody] UpdateEmployeeRequest request, CancellationToken cancellationToken)
     {
+        if (!ModelState.IsValid)
+            return BadRequest(new ApiErrorResponse { Error = "validation_error", Message = "Invalid payload.", Status = 400 });
+
         var companyIdClaim = User.FindFirst("company_id")?.Value;
         if (!Guid.TryParse(companyIdClaim, out var companyId))
             return Forbid();
 
-        var updated = await employeeService.UpdateEmployeeAsync(companyId, recordId, request, cancellationToken);
-        if (updated is null)
-            return NotFound(new { error = "employee_not_found" });
+        try
+        {
+            var updated = await employeeService.UpdateEmployeeAsync(companyId, recordId, request, cancellationToken);
+            if (updated is null)
+                return NotFound(new ApiErrorResponse { Error = "employee_not_found", Message = "Employee not found.", Status = 404 });
 
-        return Ok(updated);
+            return Ok(updated);
+        }
+        catch (InvalidOperationException ex) when (ex.Message == "hire_date_in_future")
+        {
+            return BadRequest(new ApiErrorResponse { Error = "hire_date_in_future", Message = "Hire date cannot be in the future.", Status = 400 });
+        }
     }
 
     [Authorize(Roles = "HR_Manager,Company_Owner")]

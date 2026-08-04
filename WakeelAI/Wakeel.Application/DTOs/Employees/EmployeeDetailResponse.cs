@@ -11,6 +11,7 @@ public record EmployeeDetailResponse
     [JsonPropertyName("email")] public string Email { get; init; } = string.Empty;
     [JsonPropertyName("job_title")] public string JobTitle { get; init; } = string.Empty;
     [JsonPropertyName("department")] public Guid Department { get; init; }
+    [JsonPropertyName("national_id")] public string? NationalId { get; init; }
     [JsonPropertyName("hire_date")] public DateOnly HireDate { get; init; }
     [JsonPropertyName("salary")] public decimal Salary { get; init; }
     [JsonPropertyName("contract_type")] public string ContractType { get; init; } = string.Empty;
