@@ -20,6 +20,7 @@ public class EmployeeServiceTests
     private readonly Mock<IUserRepository> _userRepositoryMock = new();
     private readonly Mock<IEmployeeProfileRepository> _employeeProfileRepositoryMock = new();
     private readonly Mock<IRefreshTokenRepository> _refreshTokenRepositoryMock = new();
+    private readonly Mock<ILeaveBalanceRepository> _leaveBalanceRepositoryMock = new();
     private readonly Mock<IPasswordHasher> _passwordHasherMock = new();
     private readonly Mock<ILogger<EmployeeService>> _loggerMock = new();
     private readonly Mock<IEmailSender> _emailSenderMock = new();
@@ -31,6 +32,7 @@ public class EmployeeServiceTests
         _unitOfWorkMock.Setup(u => u.Users).Returns(_userRepositoryMock.Object);
         _unitOfWorkMock.Setup(u => u.EmployeeProfiles).Returns(_employeeProfileRepositoryMock.Object);
         _unitOfWorkMock.Setup(u => u.RefreshTokens).Returns(_refreshTokenRepositoryMock.Object);
+        _unitOfWorkMock.Setup(u => u.LeaveBalances).Returns(_leaveBalanceRepositoryMock.Object);
 
         _refreshTokenRepositoryMock
             .Setup(r => r.FindAsync(It.IsAny<System.Linq.Expressions.Expression<Func<RefreshToken, bool>>>(), It.IsAny<CancellationToken>()))
@@ -129,8 +131,44 @@ public class EmployeeServiceTests
                 p.NationalId == null),
             It.IsAny<CancellationToken>()), Times.Once);
 
+        _leaveBalanceRepositoryMock.Verify(r => r.AddAsync(It.IsAny<LeaveBalance>(), It.IsAny<CancellationToken>()), Times.Exactly(3));
+
         _unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
         _emailSenderMock.Verify(e => e.SendEmailAsync(request.Email, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task CreateEmployeeAsync_GivenValidRequest_ShouldInitializeLeaveBalancesForCurrentYear()
+    {
+        // Arrange
+        var request = CreateValidRequest();
+        var currentYear = DateTime.UtcNow.Year;
+        var addedBalances = new List<LeaveBalance>();
+
+        _userRepositoryMock
+            .Setup(r => r.EmailExistsAsync(request.Email, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        _leaveBalanceRepositoryMock
+            .Setup(r => r.AddAsync(It.IsAny<LeaveBalance>(), It.IsAny<CancellationToken>()))
+            .Callback<LeaveBalance, CancellationToken>((lb, _) => addedBalances.Add(lb))
+            .Returns(Task.CompletedTask);
+
+        // Act
+        var result = await _sut.CreateEmployeeAsync(Guid.NewGuid(), Guid.NewGuid(), request);
+
+        // Assert
+        addedBalances.Should().HaveCount(3);
+        addedBalances.Should().OnlyContain(lb => lb.EmployeeId == result.RecordId && lb.Year == currentYear && lb.UsedDays == 0);
+
+        var annual = addedBalances.Should().ContainSingle(lb => lb.LeaveType == "Annual").Subject;
+        annual.TotalDays.Should().Be(15);
+
+        var sick = addedBalances.Should().ContainSingle(lb => lb.LeaveType == "Sick").Subject;
+        sick.TotalDays.Should().Be(10);
+
+        var unpaid = addedBalances.Should().ContainSingle(lb => lb.LeaveType == "Unpaid").Subject;
+        unpaid.TotalDays.Should().BeNull();
     }
 
     [Fact]

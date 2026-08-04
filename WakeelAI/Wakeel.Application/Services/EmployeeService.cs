@@ -72,6 +72,17 @@ public class EmployeeService : IEmployeeService
 
         await _unitOfWork.EmployeeProfiles.AddAsync(profile, cancellationToken);
 
+        var currentYear = DateTime.UtcNow.Year;
+        var leaveBalances = new[]
+        {
+            new LeaveBalance { Id = Guid.NewGuid(), EmployeeId = profile.UserId, LeaveType = "Annual", TotalDays = 15, UsedDays = 0, Year = currentYear },
+            new LeaveBalance { Id = Guid.NewGuid(), EmployeeId = profile.UserId, LeaveType = "Sick", TotalDays = 10, UsedDays = 0, Year = currentYear },
+            new LeaveBalance { Id = Guid.NewGuid(), EmployeeId = profile.UserId, LeaveType = "Unpaid", TotalDays = null, UsedDays = 0, Year = currentYear }
+        };
+
+        foreach (var leaveBalance in leaveBalances)
+            await _unitOfWork.LeaveBalances.AddAsync(leaveBalance, cancellationToken);
+
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         // send email with credentials
