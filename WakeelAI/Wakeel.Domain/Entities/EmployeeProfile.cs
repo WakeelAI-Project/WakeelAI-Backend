@@ -9,7 +9,7 @@ public class EmployeeProfile
     public string JobTitle { get; set; } = string.Empty;
     public decimal Salary { get; set; }
     public DateOnly HireDate { get; set; }
-    public string NationalId { get; set; } = string.Empty;
+    public string? NationalId { get; set; }
     public string ContractType { get; set; } = string.Empty;
 
     public User User { get; set; } = null!;

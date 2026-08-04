@@ -14,7 +14,7 @@ public class EmployeeProfileConfiguration : IEntityTypeConfiguration<EmployeePro
 
         builder.Property(ep => ep.DepartmentId).IsRequired();
         builder.Property(ep => ep.JobTitle).IsRequired();
-        builder.Property(ep => ep.NationalId).IsRequired();
+        builder.Property(ep => ep.NationalId).IsRequired(false);
         builder.Property(ep => ep.ContractType).IsRequired();
         builder.Property(ep => ep.HireDate).IsRequired();
 
