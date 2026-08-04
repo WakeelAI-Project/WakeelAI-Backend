@@ -29,6 +29,9 @@ public class EmployeeService : IEmployeeService
 
     public async Task<CreateEmployeeResponse> CreateEmployeeAsync(Guid actorUserId, Guid companyId, CreateEmployeeRequest request, CancellationToken cancellationToken = default)
     {
+        if (DateOnly.FromDateTime(request.HireDate) > DateOnly.FromDateTime(DateTime.UtcNow))
+            throw new InvalidOperationException("hire_date_in_future");
+
         // Ensure email uniqueness
         var emailExists = await _unitOfWork.Users.EmailExistsAsync(request.Email, cancellationToken);
         if (emailExists)
@@ -63,7 +66,7 @@ public class EmployeeService : IEmployeeService
             JobTitle = request.JobTitle,
             Salary = request.Salary,
             HireDate = DateOnly.FromDateTime(request.HireDate),
-            NationalId = string.Empty,
+            NationalId = null,
             ContractType = request.ContractType
         };
 
@@ -90,7 +93,7 @@ public class EmployeeService : IEmployeeService
             FullName = user.FullName,
             JobTitle = profile.JobTitle,
             Salary = profile.Salary,
-            EmploymentStatus = "Active"
+            EmploymentStatus = GetEmploymentStatus(user.IsActive)
         };
     }
 
@@ -115,7 +118,7 @@ public class EmployeeService : IEmployeeService
             HireDate = profile.HireDate,
             Salary = profile.Salary,
             ContractType = profile.ContractType,
-            EmploymentStatus = "Active"
+            EmploymentStatus = GetEmploymentStatus(user.IsActive)
         };
     }
 
@@ -179,7 +182,9 @@ public class EmployeeService : IEmployeeService
             HireDate = profile.HireDate,
             Salary = profile.Salary,
             ContractType = profile.ContractType,
-            EmploymentStatus = "Active"
+            EmploymentStatus = GetEmploymentStatus(user.IsActive)
         };
     }
+
+    private static string GetEmploymentStatus(bool isActive) => isActive ? "Active" : "Inactive";
 }

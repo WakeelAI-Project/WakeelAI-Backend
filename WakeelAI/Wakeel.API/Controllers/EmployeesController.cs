@@ -33,6 +33,10 @@ public class EmployeesController(IEmployeeService employeeService) : ControllerB
         {
             return Conflict(new ApiErrorResponse { Error = "email_already_exists", Message = "Email already exists.", Status = 409 });
         }
+        catch (InvalidOperationException ex) when (ex.Message == "hire_date_in_future")
+        {
+            return BadRequest(new ApiErrorResponse { Error = "hire_date_in_future", Message = "Hire date cannot be in the future.", Status = 400 });
+        }
     }
 
     [Authorize(Roles = "HR_Manager,Company_Owner")]
