@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
@@ -146,6 +147,145 @@ public class EmployeeServiceTests
         // Assert
         result.Should().NotBeNull();
         _unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // ------------------------------------------------------------
+    // GetEmployeeAsync
+    // ------------------------------------------------------------
+
+    [Fact]
+    public async Task GetEmployeeAsync_GivenUnknownRecordId_ShouldReturnNull()
+    {
+        // Arrange
+        _employeeProfileRepositoryMock
+            .Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((EmployeeProfile?)null);
+
+        // Act
+        var result = await _sut.GetEmployeeAsync(Guid.NewGuid(), Guid.NewGuid());
+
+        // Assert
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GetEmployeeAsync_GivenRecordFromAnotherCompany_ShouldReturnNull()
+    {
+        // Arrange
+        var (profile, user) = CreateProfileAndUser();
+
+        _employeeProfileRepositoryMock.Setup(r => r.GetByIdAsync(profile.UserId, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
+        _userRepositoryMock.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        // Act
+        var result = await _sut.GetEmployeeAsync(Guid.NewGuid(), profile.UserId);
+
+        // Assert
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GetEmployeeAsync_GivenValidRecord_ShouldReturnFullDetail()
+    {
+        // Arrange
+        var (profile, user) = CreateProfileAndUser();
+        profile.NationalId = "29001011234567";
+
+        _employeeProfileRepositoryMock.Setup(r => r.GetByIdAsync(profile.UserId, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
+        _userRepositoryMock.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        // Act
+        var result = await _sut.GetEmployeeAsync(user.CompanyId, profile.UserId);
+
+        // Assert
+        result.Should().NotBeNull();
+        result!.RecordId.Should().Be(profile.UserId);
+        result.UserId.Should().Be(user.Id);
+        result.Email.Should().Be(user.Email);
+        result.JobTitle.Should().Be(profile.JobTitle);
+        result.DepartmentId.Should().Be(profile.DepartmentId);
+        result.NationalId.Should().Be("29001011234567");
+        result.EmploymentStatus.Should().Be("Active");
+    }
+
+    // ------------------------------------------------------------
+    // ListEmployeesAsync
+    // ------------------------------------------------------------
+
+    [Fact]
+    public async Task ListEmployeesAsync_ShouldOnlyReturnEmployeesOfCallerCompany()
+    {
+        // Arrange
+        var companyId = Guid.NewGuid();
+        var (profileA, userA) = CreateProfileAndUser();
+        userA.CompanyId = companyId;
+        var (profileB, userB) = CreateProfileAndUser(); // different company
+
+        _employeeProfileRepositoryMock.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { profileA, profileB });
+        _userRepositoryMock.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { userA, userB });
+
+        // Act
+        var result = await _sut.ListEmployeesAsync(companyId, status: null, page: 1, limit: 20);
+
+        // Assert
+        result.Total.Should().Be(1);
+        result.Data.Should().ContainSingle(e => e.RecordId == profileA.UserId);
+    }
+
+    [Fact]
+    public async Task ListEmployeesAsync_GivenStatusFilter_ShouldOnlyReturnMatchingEmployees()
+    {
+        // Arrange
+        var companyId = Guid.NewGuid();
+        var (activeProfile, activeUser) = CreateProfileAndUser();
+        activeUser.CompanyId = companyId;
+        activeUser.IsActive = true;
+
+        var (inactiveProfile, inactiveUser) = CreateProfileAndUser();
+        inactiveUser.CompanyId = companyId;
+        inactiveUser.IsActive = false;
+
+        _employeeProfileRepositoryMock.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { activeProfile, inactiveProfile });
+        _userRepositoryMock.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { activeUser, inactiveUser });
+
+        // Act
+        var activeResult = await _sut.ListEmployeesAsync(companyId, status: "Active", page: 1, limit: 20);
+        var inactiveResult = await _sut.ListEmployeesAsync(companyId, status: "inactive", page: 1, limit: 20);
+
+        // Assert
+        activeResult.Data.Should().ContainSingle(e => e.RecordId == activeProfile.UserId && e.EmploymentStatus == "Active");
+        inactiveResult.Data.Should().ContainSingle(e => e.RecordId == inactiveProfile.UserId && e.EmploymentStatus == "Inactive");
+    }
+
+    [Fact]
+    public async Task ListEmployeesAsync_ShouldPaginateResults()
+    {
+        // Arrange
+        var companyId = Guid.NewGuid();
+        var profiles = new List<EmployeeProfile>();
+        var users = new List<User>();
+        for (var i = 0; i < 5; i++)
+        {
+            var (profile, user) = CreateProfileAndUser();
+            user.CompanyId = companyId;
+            profiles.Add(profile);
+            users.Add(user);
+        }
+
+        _employeeProfileRepositoryMock.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync(profiles);
+        _userRepositoryMock.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync(users);
+
+        // Act
+        var result = await _sut.ListEmployeesAsync(companyId, status: null, page: 2, limit: 2);
+
+        // Assert
+        result.Total.Should().Be(5);
+        result.Page.Should().Be(2);
+        result.Data.Should().HaveCount(2);
     }
 
     // ------------------------------------------------------------

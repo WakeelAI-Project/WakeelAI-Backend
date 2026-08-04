@@ -10,7 +10,7 @@ public record EmployeeDetailResponse
     [JsonPropertyName("full_name")] public string FullName { get; init; } = string.Empty;
     [JsonPropertyName("email")] public string Email { get; init; } = string.Empty;
     [JsonPropertyName("job_title")] public string JobTitle { get; init; } = string.Empty;
-    [JsonPropertyName("department")] public Guid Department { get; init; }
+    [JsonPropertyName("department_id")] public Guid DepartmentId { get; init; }
     [JsonPropertyName("national_id")] public string? NationalId { get; init; }
     [JsonPropertyName("hire_date")] public DateOnly HireDate { get; init; }
     [JsonPropertyName("salary")] public decimal Salary { get; init; }

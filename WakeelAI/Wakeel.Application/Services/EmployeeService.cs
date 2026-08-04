@@ -114,7 +114,7 @@ public class EmployeeService : IEmployeeService
             FullName = user.FullName,
             Email = user.Email,
             JobTitle = profile.JobTitle,
-            Department = profile.DepartmentId,
+            DepartmentId = profile.DepartmentId,
             NationalId = profile.NationalId,
             HireDate = profile.HireDate,
             Salary = profile.Salary,
@@ -136,9 +136,16 @@ public class EmployeeService : IEmployeeService
                      select new EmployeeListItem
                      {
                          RecordId = p.UserId,
+                         UserId = u.Id,
                          FullName = u.FullName,
-                         JobTitle = p.JobTitle
+                         JobTitle = p.JobTitle,
+                         EmploymentStatus = GetEmploymentStatus(u.IsActive)
                      };
+
+        if (string.Equals(status, "Active", StringComparison.OrdinalIgnoreCase))
+            joined = joined.Where(item => item.EmploymentStatus == "Active");
+        else if (string.Equals(status, "Inactive", StringComparison.OrdinalIgnoreCase))
+            joined = joined.Where(item => item.EmploymentStatus == "Inactive");
 
         var list = joined.ToList();
         var total = list.Count;
@@ -189,7 +196,7 @@ public class EmployeeService : IEmployeeService
             FullName = user.FullName,
             Email = user.Email,
             JobTitle = profile.JobTitle,
-            Department = profile.DepartmentId,
+            DepartmentId = profile.DepartmentId,
             NationalId = profile.NationalId,
             HireDate = profile.HireDate,
             Salary = profile.Salary,

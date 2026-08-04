@@ -64,10 +64,17 @@ public class EmployeesController(IEmployeeService employeeService) : ControllerB
         }
     }
 
-    [Authorize(Roles = "HR_Manager,Company_Owner")]
+    [Authorize(Roles = "HR_Manager")]
     [HttpGet]
     public async Task<IActionResult> List([FromQuery] string? status, [FromQuery] int page = 1, [FromQuery] int limit = 20, CancellationToken cancellationToken = default)
     {
+        if (!string.IsNullOrWhiteSpace(status) &&
+            !string.Equals(status, "Active", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(status, "Inactive", StringComparison.OrdinalIgnoreCase))
+        {
+            return BadRequest(new ApiErrorResponse { Error = "validation_error", Message = "status must be Active or Inactive.", Status = 400 });
+        }
+
         var companyIdClaim = User.FindFirst("company_id")?.Value;
         if (!Guid.TryParse(companyIdClaim, out var companyId))
             return Forbid();
@@ -76,7 +83,7 @@ public class EmployeesController(IEmployeeService employeeService) : ControllerB
         return Ok(list);
     }
 
-    [Authorize(Roles = "HR_Manager,Company_Owner")]
+    [Authorize(Roles = "HR_Manager")]
     [HttpGet("{recordId:guid}")]
     public async Task<IActionResult> Get([FromRoute] Guid recordId, CancellationToken cancellationToken)
     {
@@ -86,7 +93,7 @@ public class EmployeesController(IEmployeeService employeeService) : ControllerB
 
         var detail = await employeeService.GetEmployeeAsync(companyId, recordId, cancellationToken);
         if (detail is null)
-            return NotFound(new { error = "employee_not_found" });
+            return NotFound(new ApiErrorResponse { Error = "employee_not_found", Message = "Employee not found.", Status = 404 });
 
         return Ok(detail);
     }
