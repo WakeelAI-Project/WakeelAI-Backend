@@ -19,6 +19,7 @@ public class EmployeeServiceTests
     private readonly Mock<IUnitOfWork> _unitOfWorkMock = new();
     private readonly Mock<IUserRepository> _userRepositoryMock = new();
     private readonly Mock<IEmployeeProfileRepository> _employeeProfileRepositoryMock = new();
+    private readonly Mock<IRefreshTokenRepository> _refreshTokenRepositoryMock = new();
     private readonly Mock<IPasswordHasher> _passwordHasherMock = new();
     private readonly Mock<ILogger<EmployeeService>> _loggerMock = new();
     private readonly Mock<IEmailSender> _emailSenderMock = new();
@@ -29,6 +30,11 @@ public class EmployeeServiceTests
     {
         _unitOfWorkMock.Setup(u => u.Users).Returns(_userRepositoryMock.Object);
         _unitOfWorkMock.Setup(u => u.EmployeeProfiles).Returns(_employeeProfileRepositoryMock.Object);
+        _unitOfWorkMock.Setup(u => u.RefreshTokens).Returns(_refreshTokenRepositoryMock.Object);
+
+        _refreshTokenRepositoryMock
+            .Setup(r => r.FindAsync(It.IsAny<System.Linq.Expressions.Expression<Func<RefreshToken, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<RefreshToken>());
 
         _passwordHasherMock
             .Setup(h => h.HashPassword(It.IsAny<string>()))
@@ -373,6 +379,88 @@ public class EmployeeServiceTests
         _unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
         _userRepositoryMock.Verify(r => r.Update(user), Times.Once);
         _employeeProfileRepositoryMock.Verify(r => r.Update(profile), Times.Once);
+    }
+
+    // ------------------------------------------------------------
+    // DeactivateEmployeeAsync
+    // ------------------------------------------------------------
+
+    [Fact]
+    public async Task DeactivateEmployeeAsync_GivenUnknownRecordId_ShouldReturnFalse()
+    {
+        // Arrange
+        _employeeProfileRepositoryMock
+            .Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((EmployeeProfile?)null);
+
+        // Act
+        var result = await _sut.DeactivateEmployeeAsync(Guid.NewGuid(), Guid.NewGuid());
+
+        // Assert
+        result.Should().BeFalse();
+        _unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task DeactivateEmployeeAsync_GivenRecordFromAnotherCompany_ShouldReturnFalse()
+    {
+        // Arrange
+        var (profile, user) = CreateProfileAndUser();
+
+        _employeeProfileRepositoryMock.Setup(r => r.GetByIdAsync(profile.UserId, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
+        _userRepositoryMock.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        // Act
+        var result = await _sut.DeactivateEmployeeAsync(Guid.NewGuid(), profile.UserId);
+
+        // Assert
+        result.Should().BeFalse();
+        user.IsActive.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task DeactivateEmployeeAsync_GivenActiveEmployee_ShouldDeactivateAndRevokeTokens()
+    {
+        // Arrange
+        var (profile, user) = CreateProfileAndUser();
+        var activeToken = new RefreshToken { Id = Guid.NewGuid(), UserId = user.Id, IsRevoked = false };
+
+        _employeeProfileRepositoryMock.Setup(r => r.GetByIdAsync(profile.UserId, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
+        _userRepositoryMock.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _refreshTokenRepositoryMock
+            .Setup(r => r.FindAsync(It.IsAny<System.Linq.Expressions.Expression<Func<RefreshToken, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<RefreshToken> { activeToken });
+
+        // Act
+        var result = await _sut.DeactivateEmployeeAsync(user.CompanyId, profile.UserId);
+
+        // Assert
+        result.Should().BeTrue();
+        user.IsActive.Should().BeFalse();
+        activeToken.IsRevoked.Should().BeTrue();
+
+        _userRepositoryMock.Verify(r => r.Update(user), Times.Once);
+        _refreshTokenRepositoryMock.Verify(r => r.Update(activeToken), Times.Once);
+        _unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task DeactivateEmployeeAsync_GivenAlreadyInactiveEmployee_ShouldBeIdempotentAndNotPersist()
+    {
+        // Arrange
+        var (profile, user) = CreateProfileAndUser();
+        user.IsActive = false;
+
+        _employeeProfileRepositoryMock.Setup(r => r.GetByIdAsync(profile.UserId, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
+        _userRepositoryMock.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        // Act
+        var result = await _sut.DeactivateEmployeeAsync(user.CompanyId, profile.UserId);
+
+        // Assert
+        result.Should().BeTrue();
+        _unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+        _userRepositoryMock.Verify(r => r.Update(It.IsAny<User>()), Times.Never);
     }
 
     private static (EmployeeProfile Profile, User User) CreateProfileAndUser()

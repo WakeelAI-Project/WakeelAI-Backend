@@ -11,4 +11,5 @@ public interface IEmployeeService
     Task<EmployeeDetailResponse?> GetEmployeeAsync(Guid companyId, Guid recordId, CancellationToken cancellationToken = default);
     Task<EmployeeListResponse> ListEmployeesAsync(Guid companyId, string? status, int page, int limit, CancellationToken cancellationToken = default);
     Task<EmployeeDetailResponse?> UpdateEmployeeAsync(Guid companyId, Guid recordId, UpdateEmployeeRequest request, CancellationToken cancellationToken = default);
+    Task<bool> DeactivateEmployeeAsync(Guid companyId, Guid recordId, CancellationToken cancellationToken = default);
 }

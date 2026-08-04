@@ -205,6 +205,34 @@ public class EmployeeService : IEmployeeService
         };
     }
 
+    public async Task<bool> DeactivateEmployeeAsync(Guid companyId, Guid recordId, CancellationToken cancellationToken = default)
+    {
+        var profile = await _unitOfWork.EmployeeProfiles.GetByIdAsync(recordId, cancellationToken);
+        if (profile is null)
+            return false;
+
+        var user = await _unitOfWork.Users.GetByIdAsync(profile.UserId, cancellationToken);
+        if (user is null || user.CompanyId != companyId)
+            return false;
+
+        if (!user.IsActive)
+            return true;
+
+        user.IsActive = false;
+        _unitOfWork.Users.Update(user);
+
+        var activeTokens = await _unitOfWork.RefreshTokens.FindAsync(
+            rt => rt.UserId == user.Id && !rt.IsRevoked, cancellationToken);
+        foreach (var token in activeTokens)
+        {
+            token.IsRevoked = true;
+            _unitOfWork.RefreshTokens.Update(token);
+        }
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
     private static string GetEmploymentStatus(bool isActive) => isActive ? "Active" : "Inactive";
 
     private static bool IsInFuture(DateTime? date) =>

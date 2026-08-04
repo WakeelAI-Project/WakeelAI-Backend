@@ -97,4 +97,19 @@ public class EmployeesController(IEmployeeService employeeService) : ControllerB
 
         return Ok(detail);
     }
+
+    [Authorize(Roles = "HR_Manager")]
+    [HttpDelete("{recordId:guid}")]
+    public async Task<IActionResult> Deactivate([FromRoute] Guid recordId, CancellationToken cancellationToken)
+    {
+        var companyIdClaim = User.FindFirst("company_id")?.Value;
+        if (!Guid.TryParse(companyIdClaim, out var companyId))
+            return Forbid();
+
+        var deactivated = await employeeService.DeactivateEmployeeAsync(companyId, recordId, cancellationToken);
+        if (!deactivated)
+            return NotFound(new ApiErrorResponse { Error = "employee_not_found", Message = "Employee not found.", Status = 404 });
+
+        return NoContent();
+    }
 }
