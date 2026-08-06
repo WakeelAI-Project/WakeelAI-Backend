@@ -1,6 +1,128 @@
-@Wakeel.API_HostAddress = http://localhost:5032
+@HostAddress = http://localhost:5032
 
-GET {{Wakeel.API_HostAddress}}/weatherforecast/
-Accept: application/json
+### ⚠️ بعد ما تشغل الـ Login اللي فوق، انسخ الـ access_token وحطه مكان السطر اللي تحت ده:
+@OwnerToken = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiOWZlNGU1ODktZWUyZC00OTRhLTgxNzAtMGNiNzFmZDA4NDhmIiwiY29tcGFueV9pZCI6IjhlZjU3ODY3LWJmYWEtNGYyZi1iZmUzLWVjMjVjM2U5ZGMwYyIsInJvbGUiOiJDb21wYW55X093bmVyIiwianRpIjoiMWMwNGJiMjEtZWVkZS00ODVmLTg3MDYtYzFlYTRhNWY1N2E4IiwiZXhwIjoxNzg2MDMyODU1LCJpc3MiOiJXYWtlZWxBSSIsImF1ZCI6Ildha2VlbEFJLkNsaWVudHMifQ.yNh44BT_XSZT7vnNU-f3e30rk2ZrV3QzBytbfk5hfzo
+
+### ⚠️ نفس الكلام لـ HR و Employee (لو معاك الإيميل والباسورد بتوعهم نعملهم Login بنفس الطريقة)
+@HRToken = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiNTBmMzRiMjQtZmM2Yi00OTNkLWI2YzQtNWY3YjM3NWYxZmNlIiwiY29tcGFueV9pZCI6IjhlZjU3ODY3LWJmYWEtNGYyZi1iZmUzLWVjMjVjM2U5ZGMwYyIsInJvbGUiOiJIUl9NYW5hZ2VyIiwianRpIjoiODI1NjQwYjMtY2MzMy00NzQxLWI4YzQtMGU0YzE0MzA0NTY1IiwiZXhwIjoxNzg2MDMyNjE5LCJpc3MiOiJXYWtlZWxBSSIsImF1ZCI6Ildha2VlbEFJLkNsaWVudHMifQ._-hQmqxRxacWcUo677utePkZaI1oxc6OUz2dJFajJIM
+@EmployeeToken = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiMGJiMGM2NzAtNjcxZS00ODM4LTlhYTQtYWRiMWYwZDJiNGI1IiwiY29tcGFueV9pZCI6IjhlZjU3ODY3LWJmYWEtNGYyZi1iZmUzLWVjMjVjM2U5ZGMwYyIsInJvbGUiOiJFbXBsb3llZSIsImp0aSI6ImI0MDkxNmUzLWRlYzMtNDA3OC1iOWYwLTY4MmM0MTdjZjcwZSIsImV4cCI6MTc4NjAzMjkxNCwiaXNzIjoiV2FrZWVsQUkiLCJhdWQiOiJXYWtlZWxBSS5DbGllbnRzIn0.ERinpRzQSVrChuQ0rMqJGYXoOZVKs3f0fdX2KRgx2Ks
+### ⚠️ السطر ده سيبه كدا، ولما تعمل Create لقسم، انسخ الـ ID بتاعه وحطه هنا:
+@DepartmentId = 37ff72e7-daa6-4523-b9f4-a98011d64fc8
+@FakeGuid = 00000000-0000-0000-0000-000000000000
+
+
+### 1.0.0 Register New Company & Owner (عشان نجيب توكن جديد)
+POST {{HostAddress}}/api/auth/register-company
+Content-Type: application/json
+{
+  "company_name": "Acme Corp",
+  "tax_id": "123-456-789",
+  "owner_full_name": "Test Owner",
+  "owner_email": "owner@acme.com",
+  "password": "Password123!"
+}
+
+### 1.0.1 Login as Owner (عشان تجيب توكن الـ Owner)
+POST {{HostAddress}}/api/auth/login
+Content-Type: application/json
+{
+  "email": "owner@acme.com",
+  "password": "Password123!"
+}
+
+### 1.1.0 Invite new HR to the company (عشان نجيب توكن جديد)
+POST {{HostAddress}}/api/users/invite
+Authorization: Bearer {{OwnerToken}}
+Content-Type: application/json
+{
+  "full_name": "Test HR",
+  "email": "hilay26742@bejum.com",
+  "role": "HR_Manager"
+}
+
+### 1.1.1 Login as HR (عشان تجيب توكن الـ HR)
+POST {{HostAddress}}/api/auth/login
+Content-Type: application/json
+{
+  "email": "hilay26742@bejum.com",
+  "password": "8e1cc20e053142cabbd92e72b2c0d27c"
+}
+
+### 1.2.0 Create New Employee (HR Manager) -> Expected: 201 Created
+POST {{HostAddress}}/api/employees
+Authorization: Bearer {{HRToken}}
+Content-Type: application/json
+{
+  "full_name": "Test Employee",
+  "email": "u482t336hd@bwmyga.com",
+  "job_title": "Developer",
+  "department_id": "{{DepartmentId}}",
+  "hire_date": "2026-07-01",
+  "salary": 12000,
+  "contract_type": "Full-time",
+  "national_id": "29001011234567"
+}
+
+### 1.2.1 Login as Employee (عشان تجيب توكن الـ Employee)
+POST {{HostAddress}}/api/auth/login
+Content-Type: application/json
+{
+  "email": "u482t336hd@bwmyga.com",
+  "password": "7dd02b4b4aa14a30a8330c9cb42afcd5"
+}
+
+### 2. Create Department (Owner Only) -> Expected: 201 Created
+POST {{HostAddress}}/api/departments
+Authorization: Bearer {{OwnerToken}}
+Content-Type: application/json
+{
+  "name": "Engineering",
+  "description": "Software Engineering & IT Department"
+}
 
 ###
+
+### 3. Get All Departments as Owner -> Expected: 200 OK
+GET {{HostAddress}}/api/departments?page=1&limit=20
+Authorization: Bearer {{OwnerToken}}
+
+###
+
+### 4. Get All Departments as HR -> Expected: 200 OK
+GET {{HostAddress}}/api/departments?page=1&limit=20
+Authorization: Bearer {{HRToken}}
+
+###
+
+### 5. Get All Departments as Employee -> Expected: 403 Forbidden
+GET {{HostAddress}}/api/departments?page=1&limit=20
+Authorization: Bearer {{EmployeeToken}}
+
+###
+
+### 6. Get Single Department by ID -> Expected: 200 OK
+GET {{HostAddress}}/api/departments/{{DepartmentId}}
+Authorization: Bearer {{OwnerToken}}
+
+###
+
+### 7. Get Fake Department ID -> Expected: 404 Not Found
+GET {{HostAddress}}/api/departments/{{FakeGuid}}
+Authorization: Bearer {{OwnerToken}}
+
+###
+
+### 8. Update Department (Owner Only) -> Expected: 200 OK
+PATCH {{HostAddress}}/api/departments/{{DepartmentId}}
+Authorization: Bearer {{OwnerToken}}
+Content-Type: application/json
+{
+  "name": "Software Engineering",
+  "description": "Updated Department Description"
+}
+
+###
+
+### 9. Delete Department (Owner Only) -> Expected: 204 No Content
+DELETE {{HostAddress}}/api/departments/{{DepartmentId}}
+Authorization: Bearer {{OwnerToken}}
