@@ -39,6 +39,12 @@ jobs:
             --no-build `
             --output ../publish
 
+      - name: Install EF Core tools
+        run: dotnet tool install --global dotnet-ef --version 10.0.10
+
+      - name: Apply database migrations
+        run: dotnet ef database update --project Wakeel.Infrastructure/Wakeel.Infrastructure.csproj --startup-project Wakeel.API/Wakeel.API.csproj
+
       - name: Deploy
         uses: rasmusbuchholdt/simply-web-deploy@2.1.0
         with:
