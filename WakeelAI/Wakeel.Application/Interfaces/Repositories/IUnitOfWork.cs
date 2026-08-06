@@ -28,6 +28,12 @@ public interface IUnitOfWork : IDisposable
     /// Gets the repository for <see cref="Wakeel.Domain.Entities.EmployeeProfile"/> entities.
     /// </summary>
     IEmployeeProfileRepository EmployeeProfiles { get; }
+
+    /// <summary>
+    /// Gets the repository for <see cref="Wakeel.Domain.Entities.Department"/> entities.
+    /// </summary>
+    IDepartmentRepository Departments { get; }
+
     /// <summary>
     /// Persists all pending changes tracked by this unit of work to the database.
     /// </summary>

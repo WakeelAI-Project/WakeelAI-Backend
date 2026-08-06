@@ -34,6 +34,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<ICompanyRepository, CompanyRepository>();
         services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
+        services.AddScoped<IDepartmentRepository, DepartmentRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         // Use file-based email sender for Development if SMTP is not configured
         var smtpHost = configuration["Smtp:Host"];
