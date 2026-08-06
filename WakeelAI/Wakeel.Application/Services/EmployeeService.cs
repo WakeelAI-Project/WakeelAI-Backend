@@ -32,6 +32,8 @@ public class EmployeeService : IEmployeeService
         if (IsInFuture(request.HireDate))
             throw new InvalidOperationException("hire_date_in_future");
 
+        var department = await ValidateDepartmentAsync(companyId, request.DepartmentId!.Value, cancellationToken);
+
         // Ensure email uniqueness
         var emailExists = await _unitOfWork.Users.EmailExistsAsync(request.Email, cancellationToken);
         if (emailExists)
@@ -62,11 +64,11 @@ public class EmployeeService : IEmployeeService
         var profile = new EmployeeProfile
         {
             UserId = user.Id,
-            DepartmentId = Guid.Empty,
+            DepartmentId = department.Id,
             JobTitle = request.JobTitle,
             Salary = request.Salary,
             HireDate = DateOnly.FromDateTime(request.HireDate),
-            NationalId = null,
+            NationalId = request.NationalId,
             ContractType = request.ContractType
         };
 
@@ -102,8 +104,13 @@ public class EmployeeService : IEmployeeService
             UserId = user.Id,
             RecordId = profile.UserId,
             FullName = user.FullName,
+            Email = user.Email,
             JobTitle = profile.JobTitle,
+            DepartmentId = profile.DepartmentId,
+            HireDate = profile.HireDate,
             Salary = profile.Salary,
+            ContractType = profile.ContractType,
+            NationalId = profile.NationalId,
             EmploymentStatus = GetEmploymentStatus(user.IsActive)
         };
     }
@@ -242,6 +249,15 @@ public class EmployeeService : IEmployeeService
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         return true;
+    }
+
+    private async Task<Department> ValidateDepartmentAsync(Guid companyId, Guid departmentId, CancellationToken cancellationToken)
+    {
+        var department = await _unitOfWork.Departments.GetByIdAsync(departmentId, cancellationToken);
+        if (department is null || department.IsDeleted || department.CompanyId != companyId)
+            throw new InvalidOperationException("department_not_found");
+
+        return department;
     }
 
     private static string GetEmploymentStatus(bool isActive) => isActive ? "Active" : "Inactive";

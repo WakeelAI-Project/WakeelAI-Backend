@@ -21,6 +21,7 @@ public class EmployeeServiceTests
     private readonly Mock<IEmployeeProfileRepository> _employeeProfileRepositoryMock = new();
     private readonly Mock<IRefreshTokenRepository> _refreshTokenRepositoryMock = new();
     private readonly Mock<ILeaveBalanceRepository> _leaveBalanceRepositoryMock = new();
+    private readonly Mock<IDepartmentRepository> _departmentRepositoryMock = new();
     private readonly Mock<IPasswordHasher> _passwordHasherMock = new();
     private readonly Mock<ILogger<EmployeeService>> _loggerMock = new();
     private readonly Mock<IEmailSender> _emailSenderMock = new();
@@ -33,6 +34,7 @@ public class EmployeeServiceTests
         _unitOfWorkMock.Setup(u => u.EmployeeProfiles).Returns(_employeeProfileRepositoryMock.Object);
         _unitOfWorkMock.Setup(u => u.RefreshTokens).Returns(_refreshTokenRepositoryMock.Object);
         _unitOfWorkMock.Setup(u => u.LeaveBalances).Returns(_leaveBalanceRepositoryMock.Object);
+        _unitOfWorkMock.Setup(u => u.Departments).Returns(_departmentRepositoryMock.Object);
 
         _refreshTokenRepositoryMock
             .Setup(r => r.FindAsync(It.IsAny<System.Linq.Expressions.Expression<Func<RefreshToken, bool>>>(), It.IsAny<CancellationToken>()))
@@ -58,14 +60,16 @@ public class EmployeeServiceTests
     public async Task CreateEmployeeAsync_GivenDuplicateEmail_ShouldThrowAndNotCreateAnything()
     {
         // Arrange
+        var companyId = Guid.NewGuid();
         var request = CreateValidRequest();
+        SetupValidDepartment(companyId, request.DepartmentId!.Value);
 
         _userRepositoryMock
             .Setup(r => r.EmailExistsAsync(request.Email, It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
         // Act
-        var act = () => _sut.CreateEmployeeAsync(Guid.NewGuid(), Guid.NewGuid(), request);
+        var act = () => _sut.CreateEmployeeAsync(Guid.NewGuid(), companyId, request);
 
         // Assert
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("email_already_exists");
@@ -73,6 +77,60 @@ public class EmployeeServiceTests
         _userRepositoryMock.Verify(r => r.AddAsync(It.IsAny<User>(), It.IsAny<CancellationToken>()), Times.Never);
         _employeeProfileRepositoryMock.Verify(r => r.AddAsync(It.IsAny<EmployeeProfile>(), It.IsAny<CancellationToken>()), Times.Never);
         _unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateEmployeeAsync_GivenUnknownDepartment_ShouldThrowAndNotCreateAnything()
+    {
+        // Arrange
+        var request = CreateValidRequest();
+        _departmentRepositoryMock
+            .Setup(r => r.GetByIdAsync(request.DepartmentId!.Value, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Department?)null);
+
+        // Act
+        var act = () => _sut.CreateEmployeeAsync(Guid.NewGuid(), Guid.NewGuid(), request);
+
+        // Assert
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("department_not_found");
+
+        _userRepositoryMock.Verify(r => r.AddAsync(It.IsAny<User>(), It.IsAny<CancellationToken>()), Times.Never);
+        _employeeProfileRepositoryMock.Verify(r => r.AddAsync(It.IsAny<EmployeeProfile>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateEmployeeAsync_GivenDepartmentFromAnotherCompany_ShouldThrowAndNotCreateAnything()
+    {
+        // Arrange
+        var request = CreateValidRequest();
+        _departmentRepositoryMock
+            .Setup(r => r.GetByIdAsync(request.DepartmentId!.Value, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Department { Id = request.DepartmentId!.Value, CompanyId = Guid.NewGuid(), IsDeleted = false });
+
+        // Act
+        var act = () => _sut.CreateEmployeeAsync(Guid.NewGuid(), Guid.NewGuid(), request);
+
+        // Assert
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("department_not_found");
+        _employeeProfileRepositoryMock.Verify(r => r.AddAsync(It.IsAny<EmployeeProfile>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateEmployeeAsync_GivenSoftDeletedDepartment_ShouldThrowAndNotCreateAnything()
+    {
+        // Arrange
+        var companyId = Guid.NewGuid();
+        var request = CreateValidRequest();
+        _departmentRepositoryMock
+            .Setup(r => r.GetByIdAsync(request.DepartmentId!.Value, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Department { Id = request.DepartmentId!.Value, CompanyId = companyId, IsDeleted = true });
+
+        // Act
+        var act = () => _sut.CreateEmployeeAsync(Guid.NewGuid(), companyId, request);
+
+        // Assert
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("department_not_found");
+        _employeeProfileRepositoryMock.Verify(r => r.AddAsync(It.IsAny<EmployeeProfile>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -98,6 +156,7 @@ public class EmployeeServiceTests
         var actorUserId = Guid.NewGuid();
         var companyId = Guid.NewGuid();
         var request = CreateValidRequest();
+        SetupValidDepartment(companyId, request.DepartmentId!.Value);
 
         _userRepositoryMock
             .Setup(r => r.EmailExistsAsync(request.Email, It.IsAny<CancellationToken>()))
@@ -110,6 +169,7 @@ public class EmployeeServiceTests
         result.Should().NotBeNull();
         result.FullName.Should().Be(request.FullName);
         result.JobTitle.Should().Be(request.JobTitle);
+        result.DepartmentId.Should().Be(request.DepartmentId!.Value);
         result.Salary.Should().Be(request.Salary);
         result.EmploymentStatus.Should().Be("Active");
         result.UserId.Should().Be(result.RecordId);
@@ -128,6 +188,7 @@ public class EmployeeServiceTests
                 p.JobTitle == request.JobTitle &&
                 p.Salary == request.Salary &&
                 p.ContractType == request.ContractType &&
+                p.DepartmentId == request.DepartmentId &&
                 p.NationalId == null),
             It.IsAny<CancellationToken>()), Times.Once);
 
@@ -141,7 +202,9 @@ public class EmployeeServiceTests
     public async Task CreateEmployeeAsync_GivenValidRequest_ShouldInitializeLeaveBalancesForCurrentYear()
     {
         // Arrange
+        var companyId = Guid.NewGuid();
         var request = CreateValidRequest();
+        SetupValidDepartment(companyId, request.DepartmentId!.Value);
         var currentYear = DateTime.UtcNow.Year;
         var addedBalances = new List<LeaveBalance>();
 
@@ -155,7 +218,7 @@ public class EmployeeServiceTests
             .Returns(Task.CompletedTask);
 
         // Act
-        var result = await _sut.CreateEmployeeAsync(Guid.NewGuid(), Guid.NewGuid(), request);
+        var result = await _sut.CreateEmployeeAsync(Guid.NewGuid(), companyId, request);
 
         // Assert
         addedBalances.Should().HaveCount(3);
@@ -175,7 +238,9 @@ public class EmployeeServiceTests
     public async Task CreateEmployeeAsync_GivenEmailSendFailure_ShouldStillSucceed()
     {
         // Arrange
+        var companyId = Guid.NewGuid();
         var request = CreateValidRequest();
+        SetupValidDepartment(companyId, request.DepartmentId!.Value);
 
         _userRepositoryMock
             .Setup(r => r.EmailExistsAsync(request.Email, It.IsAny<CancellationToken>()))
@@ -186,7 +251,7 @@ public class EmployeeServiceTests
             .ThrowsAsync(new InvalidOperationException("smtp_unreachable"));
 
         // Act
-        var result = await _sut.CreateEmployeeAsync(Guid.NewGuid(), Guid.NewGuid(), request);
+        var result = await _sut.CreateEmployeeAsync(Guid.NewGuid(), companyId, request);
 
         // Assert
         result.Should().NotBeNull();
@@ -529,6 +594,13 @@ public class EmployeeServiceTests
         return (profile, user);
     }
 
+    private void SetupValidDepartment(Guid companyId, Guid departmentId)
+    {
+        _departmentRepositoryMock
+            .Setup(r => r.GetByIdAsync(departmentId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Department { Id = departmentId, CompanyId = companyId, IsDeleted = false });
+    }
+
     private static CreateEmployeeRequest CreateValidRequest()
     {
         return new CreateEmployeeRequest
@@ -536,6 +608,7 @@ public class EmployeeServiceTests
             FullName = "Nour Hassan",
             Email = $"nour_{Guid.NewGuid():N}@test.com",
             JobTitle = "Software Engineer",
+            DepartmentId = Guid.NewGuid(),
             HireDate = DateTime.UtcNow.AddDays(-1),
             Salary = 15000m,
             ContractType = "Full-Time"

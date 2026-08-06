@@ -43,6 +43,7 @@ public class EmployeesEndpointTests : IClassFixture<CustomWebApplicationFactory>
             db.EmployeeProfiles.RemoveRange(db.EmployeeProfiles.Where(ep => userIds.Contains(ep.UserId)));
             db.RefreshTokens.RemoveRange(db.RefreshTokens.Where(rt => userIds.Contains(rt.UserId)));
             db.Users.RemoveRange(db.Users.Where(u => u.CompanyId == companyId));
+            db.Departments.RemoveRange(db.Departments.Where(d => d.CompanyId == companyId));
             db.Companies.RemoveRange(db.Companies.Where(c => c.Id == companyId));
         }
 
@@ -56,13 +57,14 @@ public class EmployeesEndpointTests : IClassFixture<CustomWebApplicationFactory>
     [Fact]
     public async Task Create_GivenValidRequest_ShouldReturn201AndPersistEmployeeAndLeaveBalances()
     {
-        var (hrToken, _) = await SeedCompanyWithHrAsync();
+        var (hrToken, _, departmentId) = await SeedCompanyWithHrAsync();
 
         var response = await SendAsync(HttpMethod.Post, "/api/employees", hrToken, new
         {
             full_name = "Integration Employee",
             email = $"emp_{Guid.NewGuid():N}@integrationtest.local",
             job_title = "Analyst",
+            department_id = departmentId,
             hire_date = "2026-01-01",
             salary = 12000,
             contract_type = "Full-Time"
@@ -71,6 +73,7 @@ public class EmployeesEndpointTests : IClassFixture<CustomWebApplicationFactory>
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
         var recordId = body.GetProperty("record_id").GetGuid();
+        body.GetProperty("department_id").GetGuid().Should().Be(departmentId);
         body.GetProperty("employment_status").GetString().Should().Be("Active");
 
         using var scope = _factory.Services.CreateScope();
@@ -79,6 +82,7 @@ public class EmployeesEndpointTests : IClassFixture<CustomWebApplicationFactory>
         var profile = await db.EmployeeProfiles.FirstOrDefaultAsync(ep => ep.UserId == recordId);
         profile.Should().NotBeNull();
         profile!.JobTitle.Should().Be("Analyst");
+        profile.DepartmentId.Should().Be(departmentId);
 
         var leaveBalances = await db.LeaveBalances.Where(lb => lb.EmployeeId == recordId).ToListAsync();
         leaveBalances.Should().HaveCount(3);
@@ -90,13 +94,14 @@ public class EmployeesEndpointTests : IClassFixture<CustomWebApplicationFactory>
     [Fact]
     public async Task Create_GivenDuplicateEmail_ShouldReturn409()
     {
-        var (hrToken, _) = await SeedCompanyWithHrAsync();
+        var (hrToken, _, departmentId) = await SeedCompanyWithHrAsync();
         var email = $"emp_{Guid.NewGuid():N}@integrationtest.local";
         var payload = new
         {
             full_name = "Duplicate Employee",
             email,
             job_title = "Analyst",
+            department_id = departmentId,
             hire_date = "2026-01-01",
             salary = 12000,
             contract_type = "Full-Time"
@@ -119,12 +124,56 @@ public class EmployeesEndpointTests : IClassFixture<CustomWebApplicationFactory>
             full_name = "Should Not Be Created",
             email = $"emp_{Guid.NewGuid():N}@integrationtest.local",
             job_title = "Analyst",
+            department_id = Guid.NewGuid(),
             hire_date = "2026-01-01",
             salary = 12000,
             contract_type = "Full-Time"
         });
 
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task Create_GivenUnknownDepartment_ShouldReturn404()
+    {
+        var (hrToken, _, _) = await SeedCompanyWithHrAsync();
+
+        var response = await SendAsync(HttpMethod.Post, "/api/employees", hrToken, new
+        {
+            full_name = "Should Not Be Created",
+            email = $"emp_{Guid.NewGuid():N}@integrationtest.local",
+            job_title = "Analyst",
+            department_id = Guid.NewGuid(),
+            hire_date = "2026-01-01",
+            salary = 12000,
+            contract_type = "Full-Time"
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("error").GetString().Should().Be("department_not_found");
+    }
+
+    [Fact]
+    public async Task Create_GivenDepartmentFromAnotherCompany_ShouldReturn404()
+    {
+        var (hrTokenA, _, _) = await SeedCompanyWithHrAsync();
+        var (_, _, departmentIdB) = await SeedCompanyWithHrAsync();
+
+        var response = await SendAsync(HttpMethod.Post, "/api/employees", hrTokenA, new
+        {
+            full_name = "Should Not Be Created",
+            email = $"emp_{Guid.NewGuid():N}@integrationtest.local",
+            job_title = "Analyst",
+            department_id = departmentIdB,
+            hire_date = "2026-01-01",
+            salary = 12000,
+            contract_type = "Full-Time"
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("error").GetString().Should().Be("department_not_found");
     }
 
     // ------------------------------------------------------------
@@ -134,8 +183,8 @@ public class EmployeesEndpointTests : IClassFixture<CustomWebApplicationFactory>
     [Fact]
     public async Task Update_GivenValidPartialRequest_ShouldReturn200AndPersistChanges()
     {
-        var (hrToken, _) = await SeedCompanyWithHrAsync();
-        var recordId = await CreateEmployeeAsync(hrToken);
+        var (hrToken, _, departmentId) = await SeedCompanyWithHrAsync();
+        var recordId = await CreateEmployeeAsync(hrToken, departmentId);
 
         var response = await SendAsync(HttpMethod.Patch, $"/api/employees/{recordId}", hrToken, new
         {
@@ -152,7 +201,7 @@ public class EmployeesEndpointTests : IClassFixture<CustomWebApplicationFactory>
     [Fact]
     public async Task Update_GivenUnknownRecordId_ShouldReturn404()
     {
-        var (hrToken, _) = await SeedCompanyWithHrAsync();
+        var (hrToken, _, _) = await SeedCompanyWithHrAsync();
 
         var response = await SendAsync(HttpMethod.Patch, $"/api/employees/{Guid.NewGuid()}", hrToken, new
         {
@@ -165,8 +214,8 @@ public class EmployeesEndpointTests : IClassFixture<CustomWebApplicationFactory>
     [Fact]
     public async Task Update_GivenInvalidNationalId_ShouldReturn400()
     {
-        var (hrToken, _) = await SeedCompanyWithHrAsync();
-        var recordId = await CreateEmployeeAsync(hrToken);
+        var (hrToken, _, departmentId) = await SeedCompanyWithHrAsync();
+        var recordId = await CreateEmployeeAsync(hrToken, departmentId);
 
         var response = await SendAsync(HttpMethod.Patch, $"/api/employees/{recordId}", hrToken, new
         {
@@ -183,8 +232,8 @@ public class EmployeesEndpointTests : IClassFixture<CustomWebApplicationFactory>
     [Fact]
     public async Task Delete_GivenValidRecord_ShouldReturn204AndDeactivate()
     {
-        var (hrToken, _) = await SeedCompanyWithHrAsync();
-        var recordId = await CreateEmployeeAsync(hrToken);
+        var (hrToken, _, departmentId) = await SeedCompanyWithHrAsync();
+        var recordId = await CreateEmployeeAsync(hrToken, departmentId);
 
         var response = await SendAsync(HttpMethod.Delete, $"/api/employees/{recordId}", hrToken);
         response.StatusCode.Should().Be(HttpStatusCode.NoContent);
@@ -197,7 +246,7 @@ public class EmployeesEndpointTests : IClassFixture<CustomWebApplicationFactory>
     [Fact]
     public async Task Delete_GivenUnknownRecordId_ShouldReturn404()
     {
-        var (hrToken, _) = await SeedCompanyWithHrAsync();
+        var (hrToken, _, _) = await SeedCompanyWithHrAsync();
 
         var response = await SendAsync(HttpMethod.Delete, $"/api/employees/{Guid.NewGuid()}", hrToken);
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -206,8 +255,8 @@ public class EmployeesEndpointTests : IClassFixture<CustomWebApplicationFactory>
     [Fact]
     public async Task Delete_GivenNonHrCaller_ShouldReturn403()
     {
-        var (hrToken, companyId) = await SeedCompanyWithHrAsync();
-        var recordId = await CreateEmployeeAsync(hrToken);
+        var (hrToken, companyId, departmentId) = await SeedCompanyWithHrAsync();
+        var recordId = await CreateEmployeeAsync(hrToken, departmentId);
         var ownerToken = _ownerTokensByCompanyId[companyId];
 
         var response = await SendAsync(HttpMethod.Delete, $"/api/employees/{recordId}", ownerToken);
@@ -221,11 +270,11 @@ public class EmployeesEndpointTests : IClassFixture<CustomWebApplicationFactory>
     [Fact]
     public async Task List_ShouldOnlyReturnCallersCompanyEmployees()
     {
-        var (hrTokenA, _) = await SeedCompanyWithHrAsync();
-        var (hrTokenB, _) = await SeedCompanyWithHrAsync();
+        var (hrTokenA, _, departmentIdA) = await SeedCompanyWithHrAsync();
+        var (hrTokenB, _, departmentIdB) = await SeedCompanyWithHrAsync();
 
-        var recordIdA = await CreateEmployeeAsync(hrTokenA);
-        await CreateEmployeeAsync(hrTokenB);
+        var recordIdA = await CreateEmployeeAsync(hrTokenA, departmentIdA);
+        await CreateEmployeeAsync(hrTokenB, departmentIdB);
 
         var response = await SendAsync(HttpMethod.Get, "/api/employees", hrTokenA);
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -242,9 +291,9 @@ public class EmployeesEndpointTests : IClassFixture<CustomWebApplicationFactory>
     [Fact]
     public async Task List_GivenStatusFilter_ShouldReturnMatchingEmployeesOnly()
     {
-        var (hrToken, _) = await SeedCompanyWithHrAsync();
-        var activeId = await CreateEmployeeAsync(hrToken);
-        var inactiveId = await CreateEmployeeAsync(hrToken);
+        var (hrToken, _, departmentId) = await SeedCompanyWithHrAsync();
+        var activeId = await CreateEmployeeAsync(hrToken, departmentId);
+        var inactiveId = await CreateEmployeeAsync(hrToken, departmentId);
 
         var deactivateResponse = await SendAsync(HttpMethod.Delete, $"/api/employees/{inactiveId}", hrToken);
         deactivateResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
@@ -292,7 +341,7 @@ public class EmployeesEndpointTests : IClassFixture<CustomWebApplicationFactory>
         return (companyId, $"hr_{suffix}@integrationtest.local", ownerToken);
     }
 
-    private async Task<(string HrToken, Guid CompanyId)> SeedCompanyWithHrAsync()
+    private async Task<(string HrToken, Guid CompanyId, Guid DepartmentId)> SeedCompanyWithHrAsync()
     {
         var (companyId, hrEmail, ownerToken) = await SeedCompanyAsync();
 
@@ -319,16 +368,31 @@ public class EmployeesEndpointTests : IClassFixture<CustomWebApplicationFactory>
         var loginBody = await loginResponse.Content.ReadFromJsonAsync<JsonElement>();
         var hrToken = loginBody.GetProperty("access_token").GetString()!;
 
-        return (hrToken, companyId);
+        var departmentId = await SeedDepartmentAsync(ownerToken);
+
+        return (hrToken, companyId, departmentId);
     }
 
-    private async Task<Guid> CreateEmployeeAsync(string hrToken)
+    private async Task<Guid> SeedDepartmentAsync(string ownerToken)
+    {
+        var response = await SendAsync(HttpMethod.Post, "/api/departments", ownerToken, new
+        {
+            name = $"Dept {Guid.NewGuid():N}"
+        });
+        response.EnsureSuccessStatusCode();
+
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        return body.GetProperty("id").GetGuid();
+    }
+
+    private async Task<Guid> CreateEmployeeAsync(string hrToken, Guid departmentId)
     {
         var response = await SendAsync(HttpMethod.Post, "/api/employees", hrToken, new
         {
             full_name = "Seeded Employee",
             email = $"emp_{Guid.NewGuid():N}@integrationtest.local",
             job_title = "Analyst",
+            department_id = departmentId,
             hire_date = "2026-01-01",
             salary = 10000,
             contract_type = "Full-Time"

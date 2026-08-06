@@ -22,6 +22,10 @@ public record CreateEmployeeRequest
     [StringLength(200, ErrorMessage = "Job title must be at most 200 characters.")]
     public string JobTitle { get; init; } = string.Empty;
 
+    [JsonPropertyName("department_id")]
+    [Required(ErrorMessage = "Department is required.")]
+    public Guid? DepartmentId { get; init; }
+
     [JsonPropertyName("hire_date")]
     [Required(ErrorMessage = "Hire date is required.")]
     public DateTime HireDate { get; init; }
@@ -35,4 +39,8 @@ public record CreateEmployeeRequest
     [Required(ErrorMessage = "Contract type is required.")]
     [StringLength(100, ErrorMessage = "Contract type must be at most 100 characters.")]
     public string ContractType { get; init; } = string.Empty;
+
+    [JsonPropertyName("national_id")]
+    [RegularExpression(@"^\d{14}$", ErrorMessage = "National ID must be exactly 14 digits.")]
+    public string? NationalId { get; init; }
 }
