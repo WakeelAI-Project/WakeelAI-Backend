@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Wakeel.Infrastructure.Persistence;
 
@@ -11,9 +12,11 @@ using Wakeel.Infrastructure.Persistence;
 namespace Wakeel.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260804172441_MakeEmployeeNationalIdNullable")]
+    partial class MakeEmployeeNationalIdNullable
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -71,39 +74,6 @@ namespace Wakeel.Infrastructure.Migrations
                     b.ToTable("COMPANY", (string)null);
                 });
 
-            modelBuilder.Entity("Wakeel.Domain.Entities.Department", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("CompanyId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("Description")
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
-
-                    b.Property<bool>("IsDeleted")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bit")
-                        .HasDefaultValue(false);
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CompanyId");
-
-                    b.ToTable("DEPARTMENT", (string)null);
-                });
-
             modelBuilder.Entity("Wakeel.Domain.Entities.EmployeeProfile", b =>
                 {
                     b.Property<Guid>("UserId")
@@ -132,35 +102,6 @@ namespace Wakeel.Infrastructure.Migrations
                     b.HasKey("UserId");
 
                     b.ToTable("EMPLOYEE_PROFILE", (string)null);
-                });
-
-            modelBuilder.Entity("Wakeel.Domain.Entities.LeaveBalance", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("EmployeeId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("LeaveType")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<int?>("TotalDays")
-                        .HasColumnType("int");
-
-                    b.Property<int>("UsedDays")
-                        .HasColumnType("int");
-
-                    b.Property<int>("Year")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("EmployeeId");
-
-                    b.ToTable("LEAVE_BALANCE", (string)null);
                 });
 
             modelBuilder.Entity("Wakeel.Domain.Entities.RefreshToken", b =>
@@ -254,17 +195,6 @@ namespace Wakeel.Infrastructure.Migrations
                     b.ToTable("USERS", (string)null);
                 });
 
-            modelBuilder.Entity("Wakeel.Domain.Entities.Department", b =>
-                {
-                    b.HasOne("Wakeel.Domain.Entities.Company", "Company")
-                        .WithMany()
-                        .HasForeignKey("CompanyId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Company");
-                });
-
             modelBuilder.Entity("Wakeel.Domain.Entities.EmployeeProfile", b =>
                 {
                     b.HasOne("Wakeel.Domain.Entities.User", "User")
@@ -274,17 +204,6 @@ namespace Wakeel.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
-                });
-
-            modelBuilder.Entity("Wakeel.Domain.Entities.LeaveBalance", b =>
-                {
-                    b.HasOne("Wakeel.Domain.Entities.EmployeeProfile", "Employee")
-                        .WithMany("LeaveBalances")
-                        .HasForeignKey("EmployeeId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Employee");
                 });
 
             modelBuilder.Entity("Wakeel.Domain.Entities.RefreshToken", b =>
@@ -319,11 +238,6 @@ namespace Wakeel.Infrastructure.Migrations
             modelBuilder.Entity("Wakeel.Domain.Entities.Company", b =>
                 {
                     b.Navigation("Users");
-                });
-
-            modelBuilder.Entity("Wakeel.Domain.Entities.EmployeeProfile", b =>
-                {
-                    b.Navigation("LeaveBalances");
                 });
 
             modelBuilder.Entity("Wakeel.Domain.Entities.User", b =>
