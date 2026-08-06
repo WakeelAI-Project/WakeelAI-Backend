@@ -14,5 +14,6 @@ public class EmployeeProfile
     public string ContractType { get; set; } = string.Empty;
 
     public User User { get; set; } = null!;
+    public Department Department { get; set; } = null!;
     public ICollection<LeaveBalance> LeaveBalances { get; set; } = new List<LeaveBalance>();
 }
