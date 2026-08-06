@@ -22,5 +22,10 @@ public class EmployeeProfileConfiguration : IEntityTypeConfiguration<EmployeePro
         builder.Property(ep => ep.Salary)
             .IsRequired()
             .HasColumnType("decimal(18,2)");
+
+        builder.HasOne(ep => ep.Department)
+            .WithMany()
+            .HasForeignKey(ep => ep.DepartmentId)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }
