@@ -120,6 +120,7 @@ public class AuthController(IAuthService authService) : ControllerBase
                 Status = StatusCodes.Status400BadRequest
             });
 
+        SetRefreshTokenCookie(data!.RefreshToken);
         return Ok(data);
     }
 

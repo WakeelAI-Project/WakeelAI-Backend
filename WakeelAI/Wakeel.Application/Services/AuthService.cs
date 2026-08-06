@@ -227,15 +227,25 @@ public class AuthService : IAuthService
                 return (false, null, "Account not found or inactive.", AuthResultStatus.AccountInactive);
             }
 
+            // Rotation: revoke the presented refresh token — it can never be used again,
+            // even if it hasn't expired yet.
+            storedToken.IsRevoked = true;
+            _unitOfWork.RefreshTokens.Update(storedToken);
+
             var accessToken = _tokenGenerator.GenerateAccessToken(user.Id, user.Email, user.Role, user.CompanyId);
+            var newRefreshToken = _tokenGenerator.GenerateRefreshToken(user.Id);
+            await StoreRefreshTokenAsync(user.Id, newRefreshToken, cancellationToken);
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             var response = new RefreshTokenResponse
             {
                 AccessToken = accessToken,
+                RefreshToken = newRefreshToken,
                 ExpiresIn = _tokenGenerator.AccessTokenExpirationSeconds
             };
 
-            _logger.LogInformation("Access token refreshed for UserId: {UserId}", user.Id);
+            _logger.LogInformation("Access and refresh tokens rotated for UserId: {UserId}", user.Id);
             return (true, response, null, AuthResultStatus.Success);
         }
         catch (Exception ex)
