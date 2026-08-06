@@ -125,6 +125,8 @@ public class EmployeeService : IEmployeeService
         if (user is null || user.CompanyId != companyId)
             return null;
 
+        var department = await _unitOfWork.Departments.GetByIdAsync(profile.DepartmentId, cancellationToken);
+
         return new EmployeeDetailResponse
         {
             RecordId = profile.UserId,
@@ -133,6 +135,7 @@ public class EmployeeService : IEmployeeService
             Email = user.Email,
             JobTitle = profile.JobTitle,
             DepartmentId = profile.DepartmentId,
+            Department = department?.Name,
             NationalId = profile.NationalId,
             HireDate = profile.HireDate,
             Salary = profile.Salary,
@@ -147,6 +150,8 @@ public class EmployeeService : IEmployeeService
         limit = Math.Clamp(limit, 1, 100);
 
         var profiles = await _unitOfWork.EmployeeProfiles.GetAllAsync(cancellationToken);
+        var departmentNamesById = (await _unitOfWork.Departments.GetAllAsync(cancellationToken))
+            .ToDictionary(d => d.Id, d => d.Name);
 
         var joined = from p in profiles
                      join u in await _unitOfWork.Users.GetAllAsync(cancellationToken) on p.UserId equals u.Id
@@ -157,6 +162,7 @@ public class EmployeeService : IEmployeeService
                          UserId = u.Id,
                          FullName = u.FullName,
                          JobTitle = p.JobTitle,
+                         Department = departmentNamesById.GetValueOrDefault(p.DepartmentId),
                          EmploymentStatus = GetEmploymentStatus(u.IsActive)
                      };
 
@@ -190,6 +196,13 @@ public class EmployeeService : IEmployeeService
         if (IsInFuture(request.HireDate))
             throw new InvalidOperationException("hire_date_in_future");
 
+        Department? department = null;
+        if (request.DepartmentId.HasValue)
+        {
+            department = await ValidateDepartmentAsync(companyId, request.DepartmentId.Value, cancellationToken);
+            profile.DepartmentId = department.Id;
+        }
+
         if (!string.IsNullOrWhiteSpace(request.FullName))
             user.FullName = request.FullName!;
         if (!string.IsNullOrWhiteSpace(request.JobTitle))
@@ -207,6 +220,8 @@ public class EmployeeService : IEmployeeService
         _unitOfWork.EmployeeProfiles.Update(profile);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
+        department ??= await _unitOfWork.Departments.GetByIdAsync(profile.DepartmentId, cancellationToken);
+
         return new EmployeeDetailResponse
         {
             RecordId = profile.UserId,
@@ -215,6 +230,7 @@ public class EmployeeService : IEmployeeService
             Email = user.Email,
             JobTitle = profile.JobTitle,
             DepartmentId = profile.DepartmentId,
+            Department = department?.Name,
             NationalId = profile.NationalId,
             HireDate = profile.HireDate,
             Salary = profile.Salary,

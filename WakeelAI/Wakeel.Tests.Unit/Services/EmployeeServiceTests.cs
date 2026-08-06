@@ -40,6 +40,10 @@ public class EmployeeServiceTests
             .Setup(r => r.FindAsync(It.IsAny<System.Linq.Expressions.Expression<Func<RefreshToken, bool>>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<RefreshToken>());
 
+        _departmentRepositoryMock
+            .Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Department>());
+
         _passwordHasherMock
             .Setup(h => h.HashPassword(It.IsAny<string>()))
             .Returns("hashed_temp_password");
@@ -317,6 +321,24 @@ public class EmployeeServiceTests
         result.EmploymentStatus.Should().Be("Active");
     }
 
+    [Fact]
+    public async Task GetEmployeeAsync_ShouldIncludeDepartmentName()
+    {
+        // Arrange
+        var (profile, user) = CreateProfileAndUser();
+        var department = new Department { Id = profile.DepartmentId, CompanyId = user.CompanyId, Name = "Engineering", IsDeleted = false };
+
+        _employeeProfileRepositoryMock.Setup(r => r.GetByIdAsync(profile.UserId, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
+        _userRepositoryMock.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _departmentRepositoryMock.Setup(r => r.GetByIdAsync(profile.DepartmentId, It.IsAny<CancellationToken>())).ReturnsAsync(department);
+
+        // Act
+        var result = await _sut.GetEmployeeAsync(user.CompanyId, profile.UserId);
+
+        // Assert
+        result!.Department.Should().Be("Engineering");
+    }
+
     // ------------------------------------------------------------
     // ListEmployeesAsync
     // ------------------------------------------------------------
@@ -395,6 +417,26 @@ public class EmployeeServiceTests
         result.Total.Should().Be(5);
         result.Page.Should().Be(2);
         result.Data.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task ListEmployeesAsync_ShouldIncludeDepartmentName()
+    {
+        // Arrange
+        var companyId = Guid.NewGuid();
+        var (profile, user) = CreateProfileAndUser();
+        user.CompanyId = companyId;
+        var department = new Department { Id = profile.DepartmentId, CompanyId = companyId, Name = "Engineering", IsDeleted = false };
+
+        _employeeProfileRepositoryMock.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new[] { profile });
+        _userRepositoryMock.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new[] { user });
+        _departmentRepositoryMock.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new[] { department });
+
+        // Act
+        var result = await _sut.ListEmployeesAsync(companyId, status: null, page: 1, limit: 20);
+
+        // Assert
+        result.Data.Should().ContainSingle(e => e.Department == "Engineering");
     }
 
     // ------------------------------------------------------------
@@ -482,6 +524,73 @@ public class EmployeeServiceTests
         _unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
         _userRepositoryMock.Verify(r => r.Update(user), Times.Once);
         _employeeProfileRepositoryMock.Verify(r => r.Update(profile), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateEmployeeAsync_GivenValidDepartmentId_ShouldReassignAndReturnDepartmentName()
+    {
+        // Arrange
+        var (profile, user) = CreateProfileAndUser();
+        var newDepartmentId = Guid.NewGuid();
+        var newDepartment = new Department { Id = newDepartmentId, CompanyId = user.CompanyId, Name = "Finance", IsDeleted = false };
+
+        _employeeProfileRepositoryMock.Setup(r => r.GetByIdAsync(profile.UserId, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
+        _userRepositoryMock.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _departmentRepositoryMock.Setup(r => r.GetByIdAsync(newDepartmentId, It.IsAny<CancellationToken>())).ReturnsAsync(newDepartment);
+
+        var request = new UpdateEmployeeRequest { DepartmentId = newDepartmentId };
+
+        // Act
+        var result = await _sut.UpdateEmployeeAsync(user.CompanyId, profile.UserId, request);
+
+        // Assert
+        result.Should().NotBeNull();
+        result!.DepartmentId.Should().Be(newDepartmentId);
+        result.Department.Should().Be("Finance");
+        profile.DepartmentId.Should().Be(newDepartmentId);
+    }
+
+    [Fact]
+    public async Task UpdateEmployeeAsync_GivenUnknownDepartment_ShouldThrowAndNotPersist()
+    {
+        // Arrange
+        var (profile, user) = CreateProfileAndUser();
+        var unknownDepartmentId = Guid.NewGuid();
+
+        _employeeProfileRepositoryMock.Setup(r => r.GetByIdAsync(profile.UserId, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
+        _userRepositoryMock.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _departmentRepositoryMock.Setup(r => r.GetByIdAsync(unknownDepartmentId, It.IsAny<CancellationToken>())).ReturnsAsync((Department?)null);
+
+        var request = new UpdateEmployeeRequest { DepartmentId = unknownDepartmentId };
+
+        // Act
+        var act = () => _sut.UpdateEmployeeAsync(user.CompanyId, profile.UserId, request);
+
+        // Assert
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("department_not_found");
+        _unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateEmployeeAsync_GivenDepartmentFromAnotherCompany_ShouldThrowAndNotPersist()
+    {
+        // Arrange
+        var (profile, user) = CreateProfileAndUser();
+        var otherCompanyDepartmentId = Guid.NewGuid();
+        var otherCompanyDepartment = new Department { Id = otherCompanyDepartmentId, CompanyId = Guid.NewGuid(), Name = "Other Co Dept", IsDeleted = false };
+
+        _employeeProfileRepositoryMock.Setup(r => r.GetByIdAsync(profile.UserId, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
+        _userRepositoryMock.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _departmentRepositoryMock.Setup(r => r.GetByIdAsync(otherCompanyDepartmentId, It.IsAny<CancellationToken>())).ReturnsAsync(otherCompanyDepartment);
+
+        var request = new UpdateEmployeeRequest { DepartmentId = otherCompanyDepartmentId };
+
+        // Act
+        var act = () => _sut.UpdateEmployeeAsync(user.CompanyId, profile.UserId, request);
+
+        // Assert
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("department_not_found");
+        _unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     // ------------------------------------------------------------

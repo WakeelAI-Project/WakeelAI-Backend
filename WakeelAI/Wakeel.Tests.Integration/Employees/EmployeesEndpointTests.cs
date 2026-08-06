@@ -225,6 +225,57 @@ public class EmployeesEndpointTests : IClassFixture<CustomWebApplicationFactory>
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
+    [Fact]
+    public async Task Update_GivenValidDepartmentId_ShouldReassignAndReturnDepartmentName()
+    {
+        var (hrToken, companyId, departmentId) = await SeedCompanyWithHrAsync();
+        var recordId = await CreateEmployeeAsync(hrToken, departmentId);
+        var newDepartmentId = await SeedDepartmentAsync(_ownerTokensByCompanyId[companyId]);
+
+        var response = await SendAsync(HttpMethod.Patch, $"/api/employees/{recordId}", hrToken, new
+        {
+            department_id = newDepartmentId
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("department_id").GetGuid().Should().Be(newDepartmentId);
+        body.GetProperty("department").GetString().Should().NotBeNullOrEmpty();
+    }
+
+    [Fact]
+    public async Task Update_GivenUnknownDepartment_ShouldReturn404()
+    {
+        var (hrToken, _, departmentId) = await SeedCompanyWithHrAsync();
+        var recordId = await CreateEmployeeAsync(hrToken, departmentId);
+
+        var response = await SendAsync(HttpMethod.Patch, $"/api/employees/{recordId}", hrToken, new
+        {
+            department_id = Guid.NewGuid()
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("error").GetString().Should().Be("department_not_found");
+    }
+
+    [Fact]
+    public async Task Update_GivenDepartmentFromAnotherCompany_ShouldReturn404()
+    {
+        var (hrTokenA, _, departmentIdA) = await SeedCompanyWithHrAsync();
+        var recordId = await CreateEmployeeAsync(hrTokenA, departmentIdA);
+        var (_, _, departmentIdB) = await SeedCompanyWithHrAsync();
+
+        var response = await SendAsync(HttpMethod.Patch, $"/api/employees/{recordId}", hrTokenA, new
+        {
+            department_id = departmentIdB
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("error").GetString().Should().Be("department_not_found");
+    }
+
     // ------------------------------------------------------------
     // Delete (deactivate)
     // ------------------------------------------------------------
@@ -264,6 +315,24 @@ public class EmployeesEndpointTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     // ------------------------------------------------------------
+    // Get
+    // ------------------------------------------------------------
+
+    [Fact]
+    public async Task Get_ShouldIncludeDepartmentIdAndName()
+    {
+        var (hrToken, _, departmentId) = await SeedCompanyWithHrAsync();
+        var recordId = await CreateEmployeeAsync(hrToken, departmentId);
+
+        var response = await SendAsync(HttpMethod.Get, $"/api/employees/{recordId}", hrToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("department_id").GetGuid().Should().Be(departmentId);
+        body.GetProperty("department").GetString().Should().NotBeNullOrEmpty();
+    }
+
+    // ------------------------------------------------------------
     // List
     // ------------------------------------------------------------
 
@@ -280,12 +349,12 @@ public class EmployeesEndpointTests : IClassFixture<CustomWebApplicationFactory>
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
-        var ids = body.GetProperty("data").EnumerateArray()
-            .Select(item => item.GetProperty("record_id").GetGuid())
-            .ToList();
+        var items = body.GetProperty("data").EnumerateArray().ToList();
+        var ids = items.Select(item => item.GetProperty("record_id").GetGuid()).ToList();
 
         ids.Should().Contain(recordIdA);
         ids.Should().HaveCount(1);
+        items.Single().GetProperty("department").GetString().Should().NotBeNullOrEmpty();
     }
 
     [Fact]

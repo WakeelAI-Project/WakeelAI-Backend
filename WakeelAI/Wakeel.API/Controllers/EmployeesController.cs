@@ -66,6 +66,10 @@ public class EmployeesController(IEmployeeService employeeService) : ControllerB
         {
             return BadRequest(new ApiErrorResponse { Error = "hire_date_in_future", Message = "Hire date cannot be in the future.", Status = 400 });
         }
+        catch (InvalidOperationException ex) when (ex.Message == "department_not_found")
+        {
+            return NotFound(new ApiErrorResponse { Error = "department_not_found", Message = "Department not found.", Status = 404 });
+        }
     }
 
     [Authorize(Roles = "HR_Manager")]

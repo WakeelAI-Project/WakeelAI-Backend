@@ -14,6 +14,9 @@ public record UpdateEmployeeRequest
     [StringLength(200, ErrorMessage = "Job title must be at most 200 characters.")]
     public string? JobTitle { get; init; }
 
+    [JsonPropertyName("department_id")]
+    public Guid? DepartmentId { get; init; }
+
     [JsonPropertyName("hire_date")]
     public DateTime? HireDate { get; init; }
 
