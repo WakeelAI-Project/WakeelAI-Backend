@@ -283,16 +283,16 @@ public class AuthServiceTests
     }
 
     [Fact]
-    public async Task RefreshTokenAsync_GivenValidToken_ShouldReturnNewAccessToken()
+    public async Task RefreshTokenAsync_GivenValidToken_ShouldRevokeOldTokenAndReturnNewTokens()
     {
         // Arrange
         var user = CreateTestUser();
-        var request = new RefreshTokenRequest { RefreshToken = "raw_token" };
+        var request = new RefreshTokenRequest { RefreshToken = "raw_old_token" };
         var storedToken = new RefreshToken { UserId = user.Id, IsRevoked = false, ExpiresAt = DateTime.UtcNow.AddDays(1) };
 
-        _refreshTokenHasherMock.Setup(h => h.Hash(request.RefreshToken)).Returns("hashed_token");
+        _refreshTokenHasherMock.Setup(h => h.Hash(request.RefreshToken)).Returns("hashed_old_token");
         _refreshTokenRepositoryMock
-            .Setup(r => r.GetByTokenHashAsync("hashed_token", It.IsAny<CancellationToken>()))
+            .Setup(r => r.GetByTokenHashAsync("hashed_old_token", It.IsAny<CancellationToken>()))
             .ReturnsAsync(storedToken);
 
         _userRepositoryMock
@@ -303,13 +303,32 @@ public class AuthServiceTests
             .Setup(t => t.GenerateAccessToken(user.Id, user.Email, user.Role, user.CompanyId))
             .Returns("new_access_token");
 
+        _tokenGeneratorMock
+            .Setup(t => t.GenerateRefreshToken(user.Id))
+            .Returns("new_raw_refresh_token");
+
+        _refreshTokenHasherMock
+            .Setup(h => h.Hash("new_raw_refresh_token"))
+            .Returns("hashed_new_token");
+
         // Act
         var result = await _sut.RefreshTokenAsync(request);
 
         // Assert
         result.IsSuccess.Should().BeTrue();
         result.Data!.AccessToken.Should().Be("new_access_token");
+        result.Data.RefreshToken.Should().Be("new_raw_refresh_token");
         result.Data.ExpiresIn.Should().Be(900);
+
+        // The old token must be revoked
+        storedToken.IsRevoked.Should().BeTrue();
+        _refreshTokenRepositoryMock.Verify(r => r.Update(storedToken), Times.Once);
+
+        // A brand new refresh token row must be persisted
+        _refreshTokenRepositoryMock.Verify(
+            r => r.AddAsync(It.Is<RefreshToken>(rt => rt.UserId == user.Id), It.IsAny<CancellationToken>()),
+            Times.Once
+        );
     }
 
     // ------------------------------------------------------------
