@@ -8,6 +8,7 @@ using Wakeel.Application.Interfaces;
 using Wakeel.Application.Interfaces.Repositories;
 using Wakeel.Infrastructure.Persistence;
 using Wakeel.Infrastructure.Repositories;
+using Wakeel.Infrastructure.Services;
 using Wakeel.Infrastructure.Security;
 
 namespace Wakeel.Infrastructure;
@@ -29,21 +30,24 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<IPasswordHasher, BCryptPasswordHasher>();
         services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>();
         services.AddScoped<IRefreshTokenHasher, Sha256RefreshTokenHasher>();
+        services.AddScoped<ICurrentTenantService, CurrentTenantService>();
 
 
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<ICompanyRepository, CompanyRepository>();
-        services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
         services.AddScoped<IDepartmentRepository, DepartmentRepository>();
+        services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
+
+
         // Use file-based email sender for Development if SMTP is not configured
         var smtpHost = configuration["Smtp:Host"];
         if (string.IsNullOrWhiteSpace(smtpHost))
-            services.AddScoped<IEmailSender, Wakeel.Infrastructure.Services.FileEmailSender>();
+            services.AddScoped<IEmailSender, FileEmailSender>();
         else
-            services.AddScoped<IEmailSender, Wakeel.Infrastructure.Services.SmtpEmailSender>();
+            services.AddScoped<IEmailSender, SmtpEmailSender>();
 
-        services.AddScoped<IFileService, Wakeel.Infrastructure.Services.LocalFileService>();
+        services.AddScoped<IFileService, LocalFileService>();
 
         services.AddJwtAuthentication(configuration);
 
