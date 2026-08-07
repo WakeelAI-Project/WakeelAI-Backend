@@ -11,7 +11,7 @@ using Wakeel.Application.Interfaces.Services;
 namespace Wakeel.API.Controllers;
 
 [ApiController]
-[Route("api/v1/leave-requests")]
+[Route("api/leave-requests")]
 [Authorize]
 public class LeaveRequestsController : ControllerBase
 {
@@ -30,7 +30,7 @@ public class LeaveRequestsController : ControllerBase
     [Authorize(Roles = "Employee")]
     public async Task<IActionResult> CreateDraft(
         [FromForm] CreateLeaveRequestDto dto,
-        [FromForm] IFormFile? attachment,
+        IFormFile? attachment,
         CancellationToken cancellationToken)
     {
         if (!ModelState.IsValid)
