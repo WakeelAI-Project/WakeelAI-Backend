@@ -1,4 +1,6 @@
 using Microsoft.OpenApi.Models;
+using Wakeel.API.Middleware;
+
 // using Scalar.AspNetCore;
 using Wakeel.Application;
 using Wakeel.Infrastructure;
@@ -91,6 +93,7 @@ public partial class Program
         app.UseCors("AllowAll");
 
         app.UseAuthentication();
+        app.UseMiddleware<TenantResolutionMiddleware>();
         app.UseAuthorization();
 
         app.MapControllers();
