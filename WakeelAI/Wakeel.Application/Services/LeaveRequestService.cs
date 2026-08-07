@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Wakeel.Application.DTOs.LeaveRequests;
+using Wakeel.Application.Interfaces;
 using Wakeel.Application.Interfaces.Repositories;
 using Wakeel.Application.Interfaces.Services;
 using Wakeel.Domain.Entities;
@@ -13,13 +14,15 @@ namespace Wakeel.Application.Services;
 public class LeaveRequestService : ILeaveRequestService
 {
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IFileService _fileService;
 
-    public LeaveRequestService(IUnitOfWork unitOfWork)
+    public LeaveRequestService(IUnitOfWork unitOfWork, IFileService fileService)
     {
         _unitOfWork = unitOfWork;
+        _fileService = fileService;
     }
 
-    public async Task<LeaveRequestDto> CreateDraftAsync(Guid employeeId, Guid companyId, CreateLeaveRequestDto dto, bool hasAttachment, CancellationToken cancellationToken = default)
+    public async Task<LeaveRequestDto> CreateDraftAsync(Guid employeeId, Guid companyId, CreateLeaveRequestDto dto, (System.IO.Stream Stream, string FileName)? attachment, CancellationToken cancellationToken = default)
     {
         if (!DateOnly.TryParse(dto.StartDate, out var startDate) || !DateOnly.TryParse(dto.EndDate, out var endDate))
             throw new InvalidOperationException("validation_error");
@@ -55,9 +58,9 @@ public class LeaveRequestService : ILeaveRequestService
             CreatedAt = DateTime.UtcNow
         };
 
-        if (hasAttachment)
+        if (attachment.HasValue)
         {
-            leaveRequest.AttachmentUrl = $"https://storage.wakeel-ai.com/attachments/{leaveRequest.Id}.pdf";
+            leaveRequest.AttachmentUrl = await _fileService.SaveFileAsync(attachment.Value.Stream, attachment.Value.FileName, "leave-requests", cancellationToken);
         }
         else if (dto.LeaveType == "Sick")
         {

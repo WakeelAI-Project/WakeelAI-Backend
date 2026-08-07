@@ -40,9 +40,9 @@ public class LeaveRequestsController : ControllerBase
         {
             var companyId = GetCompanyId();
             var employeeId = GetUserId();
-            bool hasAttachment = attachment != null;
+            (System.IO.Stream, string)? fileAttachment = attachment != null ? (attachment.OpenReadStream(), attachment.FileName) : null;
 
-            var result = await _leaveRequestService.CreateDraftAsync(employeeId, companyId, dto, hasAttachment, cancellationToken);
+            var result = await _leaveRequestService.CreateDraftAsync(employeeId, companyId, dto, fileAttachment, cancellationToken);
             return Created("", new { request_id = result.RequestId, status = result.Status, days_requested = result.DaysRequested });
         }
         catch (InvalidOperationException ex) when (ex.Message == "validation_error")
