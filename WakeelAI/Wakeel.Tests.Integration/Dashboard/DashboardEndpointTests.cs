@@ -39,6 +39,7 @@ public class DashboardEndpointTests : IClassFixture<CustomWebApplicationFactory>
         {
             var userIds = await db.Users.Where(u => u.CompanyId == companyId).Select(u => u.Id).ToListAsync();
 
+            db.LeaveRequests.RemoveRange(db.LeaveRequests.Where(lr => lr.CompanyId == companyId));
             db.LeaveBalances.RemoveRange(db.LeaveBalances.Where(lb => userIds.Contains(lb.EmployeeId)));
             db.EmployeeProfiles.RemoveRange(db.EmployeeProfiles.Where(ep => userIds.Contains(ep.UserId)));
             db.RefreshTokens.RemoveRange(db.RefreshTokens.Where(rt => userIds.Contains(rt.UserId)));
@@ -84,7 +85,7 @@ public class DashboardEndpointTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
-    public async Task Summary_ShouldReturnPlaceholderValuesForUnimplementedFeatures()
+    public async Task Summary_GivenNoLeaveRequests_ShouldReturnZeroPendingAndPlaceholdersForUnimplementedFeatures()
     {
         var (hrToken, _, _) = await SeedCompanyWithHrAsync();
 
@@ -93,8 +94,30 @@ public class DashboardEndpointTests : IClassFixture<CustomWebApplicationFactory>
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
         body.GetProperty("pending_leave_requests").GetInt32().Should().Be(0);
+        // No CompanyHandbook / GeneratedDocument entities exist yet - these stay placeholders.
         body.GetProperty("handbook_uploaded").GetBoolean().Should().BeFalse();
         body.GetProperty("generated_documents_count").GetInt32().Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Summary_ShouldCountOnlyPendingLeaveRequestsForCallersCompany()
+    {
+        var (hrTokenA, companyIdA, departmentIdA) = await SeedCompanyWithHrAsync();
+        var employeeIdA = await CreateEmployeeAsync(hrTokenA, departmentIdA);
+        await SeedLeaveRequestAsync(companyIdA, employeeIdA, "Pending");
+        await SeedLeaveRequestAsync(companyIdA, employeeIdA, "Pending");
+        await SeedLeaveRequestAsync(companyIdA, employeeIdA, "Approved");
+        await SeedLeaveRequestAsync(companyIdA, employeeIdA, "Rejected");
+
+        var (hrTokenB, companyIdB, departmentIdB) = await SeedCompanyWithHrAsync();
+        var employeeIdB = await CreateEmployeeAsync(hrTokenB, departmentIdB);
+        await SeedLeaveRequestAsync(companyIdB, employeeIdB, "Pending");
+
+        var response = await SendAsync(HttpMethod.Get, "/api/dashboard/summary", hrTokenA);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("pending_leave_requests").GetInt32().Should().Be(2);
     }
 
     [Fact]
@@ -212,6 +235,28 @@ public class DashboardEndpointTests : IClassFixture<CustomWebApplicationFactory>
 
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
         return body.GetProperty("record_id").GetGuid();
+    }
+
+    private async Task SeedLeaveRequestAsync(Guid companyId, Guid employeeId, string status)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        db.LeaveRequests.Add(new Wakeel.Domain.Entities.LeaveRequest
+        {
+            Id = Guid.NewGuid(),
+            EmployeeId = employeeId,
+            CompanyId = companyId,
+            LeaveType = "Annual",
+            StartDate = new DateOnly(2026, 1, 1),
+            EndDate = new DateOnly(2026, 1, 2),
+            DaysRequested = 1,
+            Status = status,
+            CreatedAt = DateTime.UtcNow,
+            SubmittedAt = DateTime.UtcNow
+        });
+
+        await db.SaveChangesAsync();
     }
 
     private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string url, string token, object? body = null)

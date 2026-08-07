@@ -32,13 +32,16 @@ public class DashboardService : IDashboardService
 
         var activeEmployees = companyProfiles.Count(p => companyUsersById[p.UserId].IsActive);
 
+        var pendingLeaveRequests = await _unitOfWork.LeaveRequests.FindAsync(
+            lr => lr.CompanyId == companyId && lr.Status == "Pending", cancellationToken);
+
         return new DashboardSummaryResponse
         {
             EmployeeCount = companyProfiles.Count,
             ActiveEmployees = activeEmployees,
-            // No LeaveRequest / CompanyHandbook / GeneratedDocument entities exist yet.
+            PendingLeaveRequests = pendingLeaveRequests.Count,
+            // No CompanyHandbook / GeneratedDocument entities exist yet.
             // These stay at placeholder values until those features are built.
-            PendingLeaveRequests = 0,
             HandbookUploaded = false,
             GeneratedDocumentsCount = 0
         };
