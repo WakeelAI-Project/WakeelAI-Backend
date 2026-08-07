@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -38,6 +38,11 @@ public interface IUnitOfWork : IDisposable
     /// Gets the repository for <see cref="Wakeel.Domain.Entities.LeaveBalance"/> entities.
     /// </summary>
     ILeaveBalanceRepository LeaveBalances { get; }
+
+    /// <summary>
+    /// Gets the repository for <see cref="Wakeel.Domain.Entities.LeaveRequest"/> entities.
+    /// </summary>
+    ILeaveRequestRepository LeaveRequests { get; }
     /// <summary>
     /// Persists all pending changes tracked by this unit of work to the database.
     /// </summary>

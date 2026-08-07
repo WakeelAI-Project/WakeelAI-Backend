@@ -1,7 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Wakeel.Application.Interfaces;
 using Wakeel.Application.Services;
-using Wakeel.Application.Interfaces; // ensure interfaces are available
+using Wakeel.Application.Interfaces.Services;
 
 namespace Wakeel.Application;
 
@@ -26,6 +26,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<IEmployeeService, EmployeeService>();
         services.AddScoped<ICompanyService, CompanyService>();
         services.AddScoped<IDepartmentService, DepartmentService>();
+        services.AddScoped<ILeaveRequestService, LeaveRequestService>();
 
         return services;
     }

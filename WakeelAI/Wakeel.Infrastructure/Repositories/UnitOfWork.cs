@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Wakeel.Application.Interfaces.Repositories;
@@ -20,6 +20,7 @@ public class UnitOfWork : IUnitOfWork
     private IEmployeeProfileRepository? _employeeProfiles;
     private IDepartmentRepository? _departments;
     private ILeaveBalanceRepository? _leaveBalances;
+    private ILeaveRequestRepository? _leaveRequests;
     private bool _disposed;
 
     public UnitOfWork(ApplicationDbContext dbContext)
@@ -50,6 +51,11 @@ public class UnitOfWork : IUnitOfWork
     /// Repository for leave balance records.
     /// </summary>
     public ILeaveBalanceRepository LeaveBalances => _leaveBalances ??= new LeaveBalanceRepository(_dbContext);
+
+    /// <summary>
+    /// Repository for leave request records.
+    /// </summary>
+    public ILeaveRequestRepository LeaveRequests => _leaveRequests ??= new LeaveRequestRepository(_dbContext);
 
     /// <inheritdoc />
     public async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
