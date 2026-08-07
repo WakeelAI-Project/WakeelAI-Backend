@@ -24,7 +24,7 @@ public class LeaveRequestsController : ControllerBase
 
     private Guid GetCompanyId() => Guid.Parse(User.FindFirstValue("company_id") ?? throw new UnauthorizedAccessException());
     private Guid GetUserId() => Guid.Parse(User.FindFirstValue("user_id") ?? throw new UnauthorizedAccessException());
-    private string GetRole() => User.FindFirstValue("role") ?? throw new UnauthorizedAccessException();
+    private string GetRole() => User.FindFirstValue(ClaimTypes.Role) ?? User.FindFirstValue("role") ?? throw new UnauthorizedAccessException();
 
     [HttpPost]
     [Authorize(Roles = "Employee")]
