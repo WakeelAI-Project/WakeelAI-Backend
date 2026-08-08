@@ -1,14 +1,16 @@
-﻿using System;
+﻿using FluentAssertions;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using System;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading.Tasks;
-using FluentAssertions;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.DependencyInjection;
+using Wakeel.API;
+using Wakeel.Domain.Entities;
+using Wakeel.Domain.Enums;
 using Wakeel.Infrastructure.Persistence;
 using Xunit;
-using Wakeel.API;
 namespace Wakeel.Tests.Integration.TenantIsolation;
 
 public class QueryFilterTests : IClassFixture<WebApplicationFactory<Program>>
@@ -88,5 +90,80 @@ public class QueryFilterTests : IClassFixture<WebApplicationFactory<Program>>
 
         // Assert: Company itself is never filtered (it's the tenant root, not tenant-scoped data).
         allCompanies.Count.Should().BeGreaterThanOrEqualTo(2);
+    }
+
+    [Fact]
+    public async Task GlobalQueryFilter_ShouldPreventCrossTenantLeaveRequestAccess()
+    {
+        var (_, companyIdA) = await RegisterCompanyAsync("Tenant E Corp");
+        var (_, companyIdB) = await RegisterCompanyAsync("Tenant F Corp");
+
+        using var seedScope = _factory.Services.CreateScope();
+        var seedDbContext = seedScope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        var department = new Department
+        {
+            Id = Guid.NewGuid(),
+            CompanyId = companyIdA,
+            Name = "Tenant A Dept For Leave",
+            IsDeleted = false,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        var employeeUser = new User
+        {
+            Id = Guid.NewGuid(),
+            CompanyId = companyIdA,
+            Email = $"emp_{Guid.NewGuid()}@test.com",
+            PasswordHash = "hashed",
+            FullName = "Tenant A Employee",
+            Phone = string.Empty,
+            Role = UserRole.Employee,
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        var employeeProfile = new EmployeeProfile
+        {
+            UserId = employeeUser.Id,
+            DepartmentId = department.Id,
+            JobTitle = "Developer",
+            Salary = 10000,
+            HireDate = DateOnly.FromDateTime(DateTime.UtcNow),
+            ContractType = "Full-time"
+        };
+
+        var leaveRequest = new LeaveRequest
+        {
+            Id = Guid.NewGuid(),
+            EmployeeId = employeeUser.Id,
+            CompanyId = companyIdA,
+            LeaveType = "Annual",
+            StartDate = DateOnly.FromDateTime(DateTime.UtcNow),
+            EndDate = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(1),
+            DaysRequested = 2,
+            Status = "Draft",
+            CreatedAt = DateTime.UtcNow
+        };
+
+        seedDbContext.Departments.Add(department);
+        seedDbContext.Users.Add(employeeUser);
+        seedDbContext.EmployeeProfiles.Add(employeeProfile);
+        seedDbContext.LeaveRequests.Add(leaveRequest);
+        await seedDbContext.SaveChangesAsync();
+
+        using var scopeA = _factory.Services.CreateScope();
+        var dbContextA = scopeA.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var tenantServiceA = scopeA.ServiceProvider.GetRequiredService<Wakeel.Application.Interfaces.ICurrentTenantService>();
+        tenantServiceA.SetTenant(companyIdA);
+        var visibleToA = await dbContextA.LeaveRequests.ToListAsync();
+        visibleToA.Should().ContainSingle(lr => lr.Id == leaveRequest.Id);
+
+        using var scopeB = _factory.Services.CreateScope();
+        var dbContextB = scopeB.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var tenantServiceB = scopeB.ServiceProvider.GetRequiredService<Wakeel.Application.Interfaces.ICurrentTenantService>();
+        tenantServiceB.SetTenant(companyIdB);
+        var visibleToB = await dbContextB.LeaveRequests.ToListAsync();
+        visibleToB.Should().NotContain(lr => lr.Id == leaveRequest.Id);
     }
 }
