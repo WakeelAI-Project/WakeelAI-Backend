@@ -46,5 +46,8 @@ public class ApplicationDbContext : DbContext
 
         modelBuilder.Entity<LeaveBalance>().HasQueryFilter(lb =>
             !_currentTenantService.HasTenant || lb.Employee.Department.CompanyId == _currentTenantService.CompanyId);
+
+        modelBuilder.Entity<LeaveRequest>().HasQueryFilter(lr =>
+            !_currentTenantService.HasTenant || lr.CompanyId == _currentTenantService.CompanyId);
     }
 }
