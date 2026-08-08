@@ -28,6 +28,14 @@ public class SmtpEmailSender : IEmailSender
         var pass = _configuration["Smtp:Pass"];
         var from = _configuration["Smtp:From"] ?? user;
 
+        _logger.LogInformation(
+    "SMTP CONFIG => Host={Host}, Port={Port}, User={User}, From={From}",
+    host,
+    port,
+    user,
+    from);
+
+
         using var client = new SmtpClient(host, port)
         {
             EnableSsl = true,
@@ -38,14 +46,28 @@ public class SmtpEmailSender : IEmailSender
 
         using var message = new MailMessage(from, to, subject, htmlBody) { IsBodyHtml = true };
 
+        //try
+        //{
+        //    // SmtpClient.SendMailAsync does not accept CancellationToken in all runtimes; use the overload without token.
+        //    await client.SendMailAsync(message).ConfigureAwait(false);
+        //}
+        //catch (Exception ex)
+        //{
+        //    _logger.LogError(ex, "Failed to send SMTP email to {To}", to);
+        //    throw;
+        //}
+
         try
         {
-            // SmtpClient.SendMailAsync does not accept CancellationToken in all runtimes; use the overload without token.
-            await client.SendMailAsync(message).ConfigureAwait(false);
+            _logger.LogInformation("SMTP: About to call SendMailAsync");
+
+            await client.SendMailAsync(message);
+
+            _logger.LogInformation("SMTP: SendMailAsync completed successfully");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to send SMTP email to {To}", to);
+            _logger.LogError(ex, "SMTP: SendMailAsync FAILED");
             throw;
         }
     }

@@ -1,5 +1,4 @@
-using Microsoft.OpenApi.Models;
-// using Scalar.AspNetCore;
+using Scalar.AspNetCore;
 using Wakeel.Application;
 using Wakeel.Infrastructure;
 
@@ -14,39 +13,18 @@ public partial class Program
         // Add services
         builder.Services.AddControllers();
         builder.Services.AddEndpointsApiExplorer();
-        builder.Services.AddHealthChecks();
 
-        // Swagger
-        builder.Services.AddSwaggerGen(c =>
+        // Register Scalar/OpenAPI helpers
+        builder.Services.AddOpenApi();
+
+        // CORS - allow all for integration during development
+        builder.Services.AddCors(options =>
         {
-            c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
-            {
-                Name = "Authorization",
-                Type = SecuritySchemeType.Http,
-                Scheme = "bearer",
-                BearerFormat = "JWT",
-                In = ParameterLocation.Header,
-                Description = "Enter your JWT access token"
-            });
-
-            c.AddSecurityRequirement(new OpenApiSecurityRequirement
-            {
-                {
-                    new OpenApiSecurityScheme
-                    {
-                        Reference = new OpenApiReference
-                        {
-                            Type = ReferenceType.SecurityScheme,
-                            Id = "Bearer"
-                        }
-                    },
-                    new List<string>()
-                }
-            });
+            options.AddPolicy("AllowAll", policy => policy
+                .AllowAnyOrigin()
+                .AllowAnyMethod()
+                .AllowAnyHeader());
         });
-
-        // OpenAPI
-        // builder.Services.AddOpenApi();
 
         // Application & Infrastructure
         builder.Services.AddApplicationServices();
@@ -54,35 +32,19 @@ public partial class Program
 
         var app = builder.Build();
 
-        // OpenAPI & Scalar
-        // if (app.Environment.IsDevelopment())
-        // {
-        //     app.MapOذpenApi();
-        //     app.MapScalarApiReference();
-        // }
 
-        // Swagger
-        app.UseSwagger();
-        app.UseSwaggerUI();
+        app.MapOpenApi();
+        app.MapScalarApiReference();
 
         app.UseHttpsRedirection();
+
+        // Enable CORS
+        app.UseCors("AllowAll");
 
         app.UseAuthentication();
         app.UseAuthorization();
 
         app.MapControllers();
-
-        // Root endpoint
-        app.MapGet("/", () => Results.Ok(new
-        {
-            message = "Welcome to Wakeel AI API",
-            version = "v1",
-            swagger = "/swagger",
-            health = "/health"
-        }));
-
-        // Health Check endpoint
-        app.MapHealthChecks("/health");
 
         app.Run();
     }
