@@ -91,6 +91,22 @@ public class EmployeesController(IEmployeeService employeeService) : ControllerB
         return Ok(list);
     }
 
+    [Authorize(Roles = "Employee")]
+    [HttpGet("me")]
+    public async Task<IActionResult> GetMe(CancellationToken cancellationToken)
+    {
+        var companyIdClaim = User.FindFirst("company_id")?.Value;
+        var userIdClaim = User.FindFirst("user_id")?.Value;
+        if (!Guid.TryParse(companyIdClaim, out var companyId) || !Guid.TryParse(userIdClaim, out var userId))
+            return Forbid();
+
+        var detail = await employeeService.GetEmployeeAsync(companyId, userId, cancellationToken);
+        if (detail is null)
+            return NotFound(new ApiErrorResponse { Error = "employee_not_found", Message = "Employee not found.", Status = 404 });
+
+        return Ok(detail);
+    }
+
     [Authorize(Roles = "HR_Manager")]
     [HttpGet("{recordId:guid}")]
     public async Task<IActionResult> Get([FromRoute] Guid recordId, CancellationToken cancellationToken)
