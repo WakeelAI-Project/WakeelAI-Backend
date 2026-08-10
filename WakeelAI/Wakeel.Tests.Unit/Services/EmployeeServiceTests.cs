@@ -184,7 +184,8 @@ public class EmployeeServiceTests
                 u.FullName == request.FullName &&
                 u.CompanyId == companyId &&
                 u.CreatedByUserId == actorUserId &&
-                u.IsActive),
+                u.IsActive &&
+                u.MustChangePassword),
             It.IsAny<CancellationToken>()), Times.Once);
 
         _employeeProfileRepositoryMock.Verify(r => r.AddAsync(
