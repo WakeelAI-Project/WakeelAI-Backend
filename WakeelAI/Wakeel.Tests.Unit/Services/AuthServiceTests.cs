@@ -236,6 +236,116 @@ public class AuthServiceTests
         result.IsSuccess.Should().BeTrue();
         result.Data!.AccessToken.Should().Be("fake_access_token");
         result.Data.ExpiresIn.Should().Be(900);
+        result.Data.MustChangePassword.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task LoginAsync_GivenUserWithMustChangePassword_ShouldReturnFlagTrue()
+    {
+        // Arrange
+        var user = CreateTestUser(mustChangePassword: true);
+        var request = new LoginRequest { Email = user.Email, Password = "correct_password" };
+
+        _userRepositoryMock
+            .Setup(r => r.GetByEmailAsync(request.Email, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(user);
+
+        _passwordHasherMock
+            .Setup(h => h.VerifyPassword(request.Password, user.PasswordHash))
+            .Returns(true);
+
+        _tokenGeneratorMock
+            .Setup(t => t.GenerateAccessToken(user.Id, user.Email, user.Role, user.CompanyId))
+            .Returns("fake_access_token");
+
+        _tokenGeneratorMock
+            .Setup(t => t.GenerateRefreshToken(user.Id))
+            .Returns("fake_refresh_token");
+
+        // Act
+        var result = await _sut.LoginAsync(request);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        result.Data!.MustChangePassword.Should().BeTrue();
+    }
+
+    // ------------------------------------------------------------
+    // ChangePasswordAsync
+    // ------------------------------------------------------------
+
+    [Fact]
+    public async Task ChangePasswordAsync_GivenUnknownUser_ShouldReturnUserNotFound()
+    {
+        // Arrange
+        var userId = Guid.NewGuid();
+        var request = new ChangePasswordRequest { CurrentPassword = "temp_password", NewPassword = "NewStrongPassword123!" };
+
+        _userRepositoryMock
+            .Setup(r => r.GetByIdAsync(userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((User?)null);
+
+        // Act
+        var (isSuccess, errorMessage) = await _sut.ChangePasswordAsync(userId, request);
+
+        // Assert
+        isSuccess.Should().BeFalse();
+        errorMessage.Should().Be("user_not_found");
+    }
+
+    [Fact]
+    public async Task ChangePasswordAsync_GivenWrongCurrentPassword_ShouldReturnInvalidCurrentPassword()
+    {
+        // Arrange
+        var user = CreateTestUser(mustChangePassword: true);
+        var request = new ChangePasswordRequest { CurrentPassword = "wrong_temp_password", NewPassword = "NewStrongPassword123!" };
+
+        _userRepositoryMock
+            .Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(user);
+
+        _passwordHasherMock
+            .Setup(h => h.VerifyPassword(request.CurrentPassword, user.PasswordHash))
+            .Returns(false);
+
+        // Act
+        var (isSuccess, errorMessage) = await _sut.ChangePasswordAsync(user.Id, request);
+
+        // Assert
+        isSuccess.Should().BeFalse();
+        errorMessage.Should().Be("invalid_current_password");
+        user.MustChangePassword.Should().BeTrue("a failed change must not clear the flag");
+    }
+
+    [Fact]
+    public async Task ChangePasswordAsync_GivenValidRequest_ShouldClearMustChangePasswordFlag()
+    {
+        // Arrange
+        var user = CreateTestUser(mustChangePassword: true);
+        var request = new ChangePasswordRequest { CurrentPassword = "temp_password", NewPassword = "NewStrongPassword123!" };
+
+        _userRepositoryMock
+            .Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(user);
+
+        _passwordHasherMock
+            .Setup(h => h.VerifyPassword(request.CurrentPassword, user.PasswordHash))
+            .Returns(true);
+
+        _passwordHasherMock
+            .Setup(h => h.HashPassword(request.NewPassword))
+            .Returns("new_hashed_password");
+
+        // Act
+        var (isSuccess, errorMessage) = await _sut.ChangePasswordAsync(user.Id, request);
+
+        // Assert
+        isSuccess.Should().BeTrue();
+        errorMessage.Should().BeNull();
+        user.MustChangePassword.Should().BeFalse();
+        user.PasswordHash.Should().Be("new_hashed_password");
+        _userRepositoryMock.Verify(r => r.Update(user), Times.Once);
+        _unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     // ------------------------------------------------------------
@@ -380,7 +490,7 @@ public class AuthServiceTests
     // Test data helper
     // ------------------------------------------------------------
 
-    private static User CreateTestUser(bool isActive = true)
+    private static User CreateTestUser(bool isActive = true, bool mustChangePassword = false)
     {
         return new User
         {
@@ -391,6 +501,7 @@ public class AuthServiceTests
             FullName = "Sara Ahmed",
             Role = UserRole.Company_Owner,
             IsActive = isActive,
+            MustChangePassword = mustChangePassword,
             CreatedAt = DateTime.UtcNow
         };
     }

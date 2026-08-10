@@ -21,4 +21,7 @@ public record LoginResponse
 
     [JsonPropertyName("expires_in")]
     public int ExpiresIn { get; init; }
+
+    [JsonPropertyName("must_change_password")]
+    public bool MustChangePassword { get; init; }
 }

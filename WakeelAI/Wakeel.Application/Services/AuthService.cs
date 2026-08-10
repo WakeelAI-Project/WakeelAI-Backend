@@ -48,6 +48,7 @@ public class AuthService : IAuthService
             return (false, "invalid_current_password");
 
         user.PasswordHash = _passwordHasher.HashPassword(request.NewPassword);
+        user.MustChangePassword = false;
         _unitOfWork.Users.Update(user);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -106,6 +107,7 @@ public class AuthService : IAuthService
                 Role = UserRole.Company_Owner,
                 IsActive = true,
                 IsEmailConfirmed = false,
+                MustChangePassword = false,
                 ActivationToken = string.Empty,
                 ActivationTokenExpiry = DateTime.UtcNow,
                 CreatedByUserId = null,
@@ -181,7 +183,8 @@ public class AuthService : IAuthService
                 Role = user.Role.ToString(),
                 AccessToken = accessToken,
                 RefreshToken = refreshToken,
-                ExpiresIn = _tokenGenerator.AccessTokenExpirationSeconds
+                ExpiresIn = _tokenGenerator.AccessTokenExpirationSeconds,
+                MustChangePassword = user.MustChangePassword
             };
 
             _logger.LogInformation("Login succeeded for UserId: {UserId}", user.Id);
