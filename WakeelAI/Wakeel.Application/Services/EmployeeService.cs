@@ -128,6 +128,10 @@ public class EmployeeService : IEmployeeService
 
         var department = await _unitOfWork.Departments.GetByIdAsync(profile.DepartmentId, cancellationToken);
 
+        var currentYear = DateTime.UtcNow.Year;
+        var balances = await _unitOfWork.LeaveBalances.FindAsync(
+            lb => lb.EmployeeId == profile.UserId && lb.Year == currentYear, cancellationToken);
+
         return new EmployeeDetailResponse
         {
             RecordId = profile.UserId,
@@ -141,7 +145,13 @@ public class EmployeeService : IEmployeeService
             HireDate = profile.HireDate,
             Salary = profile.Salary,
             ContractType = profile.ContractType,
-            EmploymentStatus = GetEmploymentStatus(user.IsActive)
+            EmploymentStatus = GetEmploymentStatus(user.IsActive),
+            LeaveBalance = new LeaveBalanceSummary
+            {
+                Annual = MapLeaveBalance(balances, "Annual"),
+                Sick = MapLeaveBalance(balances, "Sick"),
+                Unpaid = MapLeaveBalance(balances, "Unpaid")
+            }
         };
     }
 
@@ -278,6 +288,20 @@ public class EmployeeService : IEmployeeService
     }
 
     private static string GetEmploymentStatus(bool isActive) => isActive ? "Active" : "Inactive";
+
+    private static LeaveTypeBalance? MapLeaveBalance(IEnumerable<LeaveBalance> balances, string leaveType)
+    {
+        var match = balances.FirstOrDefault(b => string.Equals(b.LeaveType, leaveType, StringComparison.OrdinalIgnoreCase));
+        if (match is null)
+            return null;
+
+        return new LeaveTypeBalance
+        {
+            TotalDays = match.TotalDays,
+            UsedDays = match.UsedDays,
+            RemainingDays = match.TotalDays.HasValue ? match.TotalDays.Value - match.UsedDays : null
+        };
+    }
 
     private static bool IsInFuture(DateTime? date) =>
         date.HasValue && DateOnly.FromDateTime(date.Value) > DateOnly.FromDateTime(DateTime.UtcNow);

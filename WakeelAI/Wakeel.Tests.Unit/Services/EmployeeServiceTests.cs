@@ -44,6 +44,10 @@ public class EmployeeServiceTests
             .Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Department>());
 
+        _leaveBalanceRepositoryMock
+            .Setup(r => r.FindAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveBalance, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<LeaveBalance>());
+
         _passwordHasherMock
             .Setup(h => h.HashPassword(It.IsAny<string>()))
             .Returns("hashed_temp_password");
@@ -338,6 +342,36 @@ public class EmployeeServiceTests
 
         // Assert
         result!.Department.Should().Be("Engineering");
+    }
+
+    [Fact]
+    public async Task GetEmployeeAsync_ShouldMapCurrentYearLeaveBalances()
+    {
+        // Arrange
+        var (profile, user) = CreateProfileAndUser();
+        var currentYear = DateTime.UtcNow.Year;
+
+        _employeeProfileRepositoryMock.Setup(r => r.GetByIdAsync(profile.UserId, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
+        _userRepositoryMock.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        var balances = new List<LeaveBalance>
+        {
+            new() { Id = Guid.NewGuid(), EmployeeId = profile.UserId, LeaveType = "Annual", TotalDays = 15, UsedDays = 2, Year = currentYear },
+            new() { Id = Guid.NewGuid(), EmployeeId = profile.UserId, LeaveType = "Sick", TotalDays = 10, UsedDays = 0, Year = currentYear },
+            new() { Id = Guid.NewGuid(), EmployeeId = profile.UserId, LeaveType = "Unpaid", TotalDays = null, UsedDays = 1, Year = currentYear }
+        };
+        _leaveBalanceRepositoryMock
+            .Setup(r => r.FindAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveBalance, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(balances);
+
+        // Act
+        var result = await _sut.GetEmployeeAsync(user.CompanyId, profile.UserId);
+
+        // Assert
+        result!.LeaveBalance.Should().NotBeNull();
+        result.LeaveBalance!.Annual.Should().BeEquivalentTo(new LeaveTypeBalance { TotalDays = 15, UsedDays = 2, RemainingDays = 13 });
+        result.LeaveBalance.Sick.Should().BeEquivalentTo(new LeaveTypeBalance { TotalDays = 10, UsedDays = 0, RemainingDays = 10 });
+        result.LeaveBalance.Unpaid.Should().BeEquivalentTo(new LeaveTypeBalance { TotalDays = null, UsedDays = 1, RemainingDays = null });
     }
 
     // ------------------------------------------------------------
