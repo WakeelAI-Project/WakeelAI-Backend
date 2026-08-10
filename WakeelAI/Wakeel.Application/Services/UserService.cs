@@ -92,6 +92,28 @@ public class UserService : IUserService
         };
     }
 
+    public async Task<UserProfileResponse?> GetMyProfileAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        var user = await _unitOfWork.Users.GetByIdAsync(userId, cancellationToken);
+        if (user is null)
+            return null;
+
+        var company = await _unitOfWork.Companies.GetByIdAsync(user.CompanyId, cancellationToken);
+
+        return new UserProfileResponse
+        {
+            UserId = user.Id,
+            CompanyId = user.CompanyId,
+            CompanyName = company?.Name ?? string.Empty,
+            FullName = user.FullName,
+            Email = user.Email,
+            Phone = user.Phone,
+            Role = user.Role.ToString(),
+            IsActive = user.IsActive,
+            CreatedAt = user.CreatedAt
+        };
+    }
+
     public async Task<UserListResponse> ListUsersAsync(Guid companyId, string? role, int page, int limit, CancellationToken cancellationToken = default)
     {
         page = Math.Max(1, page);
