@@ -25,7 +25,7 @@ public class CompanyController : ControllerBase
         _fileService = fileService;
     }
 
-    [Authorize(Roles = "Company_Owner")]
+    [Authorize(Roles = "Company_Owner,HR_Manager")]
     [HttpGet("profile")]
     public async Task<IActionResult> GetProfile(CancellationToken cancellationToken)
     {

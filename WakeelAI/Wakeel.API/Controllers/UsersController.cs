@@ -43,6 +43,21 @@ public class UsersController(IUserService userService) : ControllerBase
         }
     }
 
+    [Authorize(Roles = "HR_Manager")]
+    [HttpGet("me")]
+    public async Task<IActionResult> GetMe(CancellationToken cancellationToken)
+    {
+        var userIdClaim = User.FindFirst("user_id")?.Value;
+        if (!Guid.TryParse(userIdClaim, out var userId))
+            return Forbid();
+
+        var profile = await userService.GetMyProfileAsync(userId, cancellationToken);
+        if (profile is null)
+            return NotFound(new ApiErrorResponse { Error = "user_not_found", Message = "User not found.", Status = 404 });
+
+        return Ok(profile);
+    }
+
     [Authorize(Roles = "Company_Owner")]
     [HttpGet]
     public async Task<IActionResult> List([FromQuery] string? role, [FromQuery] int page = 1, [FromQuery] int limit = 20, CancellationToken cancellationToken = default)

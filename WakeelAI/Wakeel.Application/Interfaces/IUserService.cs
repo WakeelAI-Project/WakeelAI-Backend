@@ -11,4 +11,5 @@ public interface IUserService
     Task<InviteUserResponse> InviteUserAsync(Guid ownerUserId, Guid companyId, InviteUserRequest request, CancellationToken cancellationToken = default);
     Task<UserListResponse> ListUsersAsync(Guid companyId, string? role, int page, int limit, CancellationToken cancellationToken = default);
     Task<UserListItem?> UpdateUserStatusAsync(Guid companyId, Guid userId, bool isActive, CancellationToken cancellationToken = default);
+    Task<UserProfileResponse?> GetMyProfileAsync(Guid userId, CancellationToken cancellationToken = default);
 }
