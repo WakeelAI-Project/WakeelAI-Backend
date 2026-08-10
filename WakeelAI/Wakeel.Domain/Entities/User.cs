@@ -15,6 +15,7 @@ public class User
     public UserRole Role { get; set; }
     public bool IsActive { get; set; }
     public bool IsEmailConfirmed { get; set; }
+    public bool MustChangePassword { get; set; }
     public string ActivationToken { get; set; } = string.Empty;
     public DateTime ActivationTokenExpiry { get; set; }
     public Guid? CreatedByUserId { get; set; }

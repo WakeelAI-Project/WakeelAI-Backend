@@ -61,6 +61,8 @@ public class UserService : IUserService
             Role = role,
             IsActive = true,
             IsEmailConfirmed = false,
+            // MustChangePassword intentionally left false here — the forced-change flow only covers
+            // mobile-app employees (EmployeeService.CreateEmployeeAsync) for now, not web-invited users.
             ActivationToken = string.Empty,
             ActivationTokenExpiry = DateTime.UtcNow,
             CreatedByUserId = creator is null ? null : ownerUserId,

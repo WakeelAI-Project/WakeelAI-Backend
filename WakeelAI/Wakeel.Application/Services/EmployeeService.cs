@@ -53,6 +53,7 @@ public class EmployeeService : IEmployeeService
             Role = UserRole.Employee,
             IsActive = true,
             IsEmailConfirmed = false,
+            MustChangePassword = true,
             ActivationToken = string.Empty,
             ActivationTokenExpiry = DateTime.UtcNow,
             CreatedByUserId = actorUserId,
