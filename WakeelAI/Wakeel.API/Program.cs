@@ -3,6 +3,7 @@ using Wakeel.API.Middleware;
 
 // using Scalar.AspNetCore;
 using Wakeel.Application;
+using Wakeel.Domain.Entities;
 using Wakeel.Infrastructure;
 
 namespace Wakeel.API;
@@ -93,8 +94,13 @@ public partial class Program
         app.UseCors("AllowAll");
 
         app.UseAuthentication();
+        // Internal M2M PSK middleware — secures all /api/ai/ routes.
+        // Must run AFTER UseAuthentication so the middleware pipeline order is correct,
+        // but the InternalApiKeyMiddleware itself bypasses JWT for /api/ai/ routes entirely.
+        app.UseMiddleware<InternalApiKeyMiddleware>();
         app.UseMiddleware<TenantResolutionMiddleware>();
         app.UseAuthorization();
+
 
         app.MapControllers();
 

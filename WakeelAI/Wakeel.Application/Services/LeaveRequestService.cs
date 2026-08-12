@@ -70,7 +70,59 @@ public class LeaveRequestService : ILeaveRequestService
         await _unitOfWork.LeaveRequests.AddAsync(leaveRequest, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        return MapToDto(leaveRequest, null); // Emloyee name can be null upon creation since it's an immediate return
+        return MapToDto(leaveRequest, null); // Employee name can be null upon creation since it's an immediate return
+    }
+
+    /// <inheritdoc />
+    public async Task<LeaveRequestDto> CreateDraftFromUrlAsync(
+        Guid employeeId,
+        Guid companyId,
+        InternalCreateLeaveRequestDto dto,
+        CancellationToken cancellationToken = default)
+    {
+        if (!DateOnly.TryParse(dto.StartDate, out var startDate) || !DateOnly.TryParse(dto.EndDate, out var endDate))
+            throw new InvalidOperationException("validation_error");
+
+        if (startDate < DateOnly.FromDateTime(DateTime.UtcNow) || endDate < startDate)
+            throw new InvalidOperationException("validation_error");
+
+        var daysRequested = endDate.DayNumber - startDate.DayNumber + 1;
+
+        // Check sufficient balance at creation for Annual or Sick leave
+        if (dto.LeaveType == "Annual" || dto.LeaveType == "Sick")
+        {
+            var year = startDate.Year;
+            var balance = await _unitOfWork.LeaveBalances.FirstOrDefaultAsync(
+                lb => lb.EmployeeId == employeeId && lb.LeaveType == dto.LeaveType && lb.Year == year,
+                cancellationToken);
+
+            if (balance == null || (balance.TotalDays.HasValue && balance.TotalDays.Value - balance.UsedDays < daysRequested))
+                throw new InvalidOperationException("insufficient_leave_balance");
+        }
+
+        // For Sick leave, the attachment_url must be provided (pre-uploaded via POST /api/leave-requests/attachments)
+        if (dto.LeaveType == "Sick" && string.IsNullOrWhiteSpace(dto.AttachmentUrl))
+            throw new InvalidOperationException("attachment_required");
+
+        var leaveRequest = new LeaveRequest
+        {
+            Id             = Guid.NewGuid(),
+            EmployeeId     = employeeId,
+            CompanyId      = companyId,
+            LeaveType      = dto.LeaveType,
+            StartDate      = startDate,
+            EndDate        = endDate,
+            DaysRequested  = daysRequested,
+            Reason         = dto.Reason,
+            Status         = "Draft",
+            AttachmentUrl  = dto.AttachmentUrl,
+            CreatedAt      = DateTime.UtcNow
+        };
+
+        await _unitOfWork.LeaveRequests.AddAsync(leaveRequest, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return MapToDto(leaveRequest, null);
     }
 
     public async Task<(IEnumerable<LeaveRequestDto> Data, int Page, int Total)> ListAsync(Guid companyId, Guid? employeeId, string role, string? status, int page, int limit, CancellationToken cancellationToken = default)
