@@ -115,7 +115,7 @@ public class InternalAiContextControllerTests : IClassFixture<CustomWebApplicati
         var response = await client.SendAsync(request);
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         var json = await response.Content.ReadAsStringAsync();
-        json.Should().Contain("MISSING_IDENTITY_HEADERS");
+        json.Should().Contain("missing_identity_headers");
     }
 
     [Fact]

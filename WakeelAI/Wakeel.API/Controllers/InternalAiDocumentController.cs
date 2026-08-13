@@ -16,6 +16,7 @@ namespace Wakeel.API.Controllers;
 /// Secured exclusively via InternalApiKeyMiddleware (PSK).
 /// </summary>
 [ApiController]
+[Route("api")]
 [AllowAnonymous]
 public class InternalAiDocumentController : ControllerBase
 {
@@ -28,7 +29,7 @@ public class InternalAiDocumentController : ControllerBase
 
     private Guid GetXCompanyId() => Guid.Parse(Request.Headers["X-Company-Id"]!);
 
-    [HttpGet("api/ai/templates/active")]
+    [HttpGet("ai/templates/active")]
     public async Task<IActionResult> GetActiveTemplate([FromQuery] string documentType, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(documentType))
@@ -53,7 +54,7 @@ public class InternalAiDocumentController : ControllerBase
         return Ok(response);
     }
 
-    [HttpPost("api/documents/save")]
+    [HttpPost("documents/save")]
     public async Task<IActionResult> SaveGeneratedDocument([FromBody] SaveDocumentRequest request, CancellationToken cancellationToken)
     {
         if (!ModelState.IsValid)

@@ -81,7 +81,7 @@ public class InternalApiKeyMiddleware
         if (string.IsNullOrEmpty(providedApiKey) || providedApiKey != _expectedApiKey)
         {
             _logger.LogWarning("Internal API request to {Path} rejected: invalid or missing X-Internal-API-Key.", context.Request.Path);
-            await WriteErrorResponseAsync(context, StatusCodes.Status401Unauthorized, "UNAUTHORIZED_SERVICE", "Missing or invalid X-Internal-API-Key.");
+            await WriteErrorResponseAsync(context, StatusCodes.Status401Unauthorized, "unauthorized", "Missing or invalid X-Internal-API-Key.");
             return;
         }
 
@@ -95,7 +95,7 @@ public class InternalApiKeyMiddleware
             string.IsNullOrWhiteSpace(role))
         {
             _logger.LogWarning("Internal API request to {Path} rejected: missing identity headers.", context.Request.Path);
-            await WriteErrorResponseAsync(context, StatusCodes.Status400BadRequest, "MISSING_IDENTITY_HEADERS",
+            await WriteErrorResponseAsync(context, StatusCodes.Status400BadRequest, "missing_identity_headers",
                 "X-User-Id, X-Company-Id, and X-Role headers are all required.");
             return;
         }
