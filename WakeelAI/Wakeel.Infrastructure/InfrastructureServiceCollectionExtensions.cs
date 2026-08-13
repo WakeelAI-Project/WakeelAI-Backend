@@ -49,6 +49,16 @@ public static class InfrastructureServiceCollectionExtensions
 
         services.AddScoped<IFileService, LocalFileService>();
 
+        // Register the named HttpClient for Node.js AI service calls.
+        // 60-second timeout is required to prevent orphaned LLM generation tasks.
+        services.AddHttpClient("AiNodeClient", client =>
+        {
+            client.BaseAddress = new Uri(
+                configuration["AiNode:BaseUrl"]
+                ?? throw new InvalidOperationException("AiNode:BaseUrl is not configured."));
+            client.Timeout = TimeSpan.FromSeconds(60);
+        });
+
         services.AddJwtAuthentication(configuration);
 
         return services;
