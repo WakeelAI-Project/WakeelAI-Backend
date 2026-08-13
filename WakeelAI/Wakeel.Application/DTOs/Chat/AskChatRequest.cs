@@ -5,7 +5,7 @@ using System.ComponentModel.DataAnnotations;
 namespace Wakeel.Application.DTOs.Chat;
 
 /// <summary>
-/// The request body sent by the client (Web/Mobile) to POST /api/chat/ask.
+/// The request body sent by the client (Web/Mobile) to POST /api/ai/chat.
 /// </summary>
 public record AskChatRequest
 {

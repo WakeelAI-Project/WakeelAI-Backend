@@ -43,16 +43,33 @@ public class InternalApiKeyMiddleware
             ?? throw new InvalidOperationException("AiNode:InternalApiKey is not configured.");
     }
 
+    private bool IsIncomingM2MEndpoint(PathString path)
+    {
+        var p = path.Value ?? string.Empty;
+
+        // Explicitly intercept only INCOMING endpoints from Node.js -> .NET
+        if (p.StartsWith("/api/ai/employee-context", StringComparison.OrdinalIgnoreCase)) return true;
+        if (p.StartsWith("/api/ai/company-context", StringComparison.OrdinalIgnoreCase)) return true;
+        if (p.StartsWith("/api/ai/templates/active", StringComparison.OrdinalIgnoreCase)) return true;
+        if (p.StartsWith("/api/documents/save", StringComparison.OrdinalIgnoreCase)) return true;
+        if (p.StartsWith("/api/ai/leave-requests", StringComparison.OrdinalIgnoreCase)) return true;
+
+        // Do NOT intercept /api/ai/chat or /api/knowledge/ingest
+        // because those are either public frontend requests or outbound from .NET
+
+        return false;
+    }
+
     /// <summary>
-    /// Invokes the middleware. Routes not under /api/ai/ are passed through immediately.
-    /// For /api/ai/ routes, validates PSK then required identity headers.
+    /// Invokes the middleware. Only explicit incoming M2M endpoints are intercepted.
+    /// Validates PSK then required identity headers.
     /// </summary>
     /// <param name="context">The HTTP context for this request.</param>
     /// <returns>A task that completes when the middleware pipeline has finished.</returns>
     public async Task InvokeAsync(HttpContext context)
     {
-        // Only guard routes under /api/ai/
-        if (!context.Request.Path.StartsWithSegments("/api/ai", StringComparison.OrdinalIgnoreCase))
+        // Only guard specific incoming M2M routes
+        if (!IsIncomingM2MEndpoint(context.Request.Path))
         {
             await _next(context);
             return;
@@ -64,7 +81,7 @@ public class InternalApiKeyMiddleware
         if (string.IsNullOrEmpty(providedApiKey) || providedApiKey != _expectedApiKey)
         {
             _logger.LogWarning("Internal API request to {Path} rejected: invalid or missing X-Internal-API-Key.", context.Request.Path);
-            await WriteErrorResponseAsync(context, StatusCodes.Status401Unauthorized, "unauthorized", "Missing or invalid X-Internal-API-Key.");
+            await WriteErrorResponseAsync(context, StatusCodes.Status401Unauthorized, "UNAUTHORIZED_SERVICE", "Missing or invalid X-Internal-API-Key.");
             return;
         }
 
@@ -78,27 +95,14 @@ public class InternalApiKeyMiddleware
             string.IsNullOrWhiteSpace(role))
         {
             _logger.LogWarning("Internal API request to {Path} rejected: missing identity headers.", context.Request.Path);
-            await WriteErrorResponseAsync(context, StatusCodes.Status400BadRequest, "missing_identity_headers",
+            await WriteErrorResponseAsync(context, StatusCodes.Status400BadRequest, "MISSING_IDENTITY_HEADERS",
                 "X-User-Id, X-Company-Id, and X-Role headers are all required.");
             return;
         }
 
-        // -------- Step 3: Validate GUID format --------
-        if (!Guid.TryParse(userId, out _))
-        {
-            _logger.LogWarning("Internal API request to {Path} rejected: X-User-Id is not a valid GUID.", context.Request.Path);
-            await WriteErrorResponseAsync(context, StatusCodes.Status400BadRequest, "missing_identity_headers",
-                "X-User-Id must be a valid GUID.");
-            return;
-        }
-
-        if (!Guid.TryParse(companyId, out _))
-        {
-            _logger.LogWarning("Internal API request to {Path} rejected: X-Company-Id is not a valid GUID.", context.Request.Path);
-            await WriteErrorResponseAsync(context, StatusCodes.Status400BadRequest, "missing_identity_headers",
-                "X-Company-Id must be a valid GUID.");
-            return;
-        }
+        // Step 3: No custom format validation for UUID/Role here.
+        // We let invalid formats pass through to downstream controllers 
+        // to handle natively per the v8 spec requirements.
 
         await _next(context);
     }

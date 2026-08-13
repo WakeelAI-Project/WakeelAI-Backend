@@ -18,9 +18,12 @@ namespace Wakeel.API.Controllers;
 /// API Gateway controller for AI chat. Acts as a proxy between the client and the Node.js AI service.
 /// .NET owns the conversationId lifecycle — it mints new UUIDs and translates
 /// the Node.js response envelope into the client-facing snake_case contract.
+///
+/// Public route: POST /api/ai/chat (JWT-authenticated, called by frontend).
+/// This controller is NOT secured by InternalApiKeyMiddleware — it uses standard JWT.
 /// </summary>
 [ApiController]
-[Route("api/chat")]
+[Route("api/ai/chat")]
 [Authorize]
 public class AiChatGatewayController : ControllerBase
 {
@@ -52,17 +55,20 @@ public class AiChatGatewayController : ControllerBase
     private Guid GetCompanyId() => Guid.Parse(User.FindFirstValue("company_id") ?? throw new UnauthorizedAccessException());
     private string GetRole()    => User.FindFirstValue(ClaimTypes.Role) ?? User.FindFirstValue("role") ?? throw new UnauthorizedAccessException();
 
-    // -------- POST /api/chat/ask --------
+    // -------- POST /api/ai/chat --------
 
     /// <summary>
     /// Accepts a chat message from the client, resolves or mints a conversationId,
     /// and proxies the request to the Node.js AI service.
     /// Returns the AI reply translated into the client-facing envelope.
+    ///
+    /// The frontend provides: message, conversation_id (optional), language, field_values.
+    /// userId, companyId, and role are extracted from the authenticated JWT — never from the request body.
     /// </summary>
     /// <param name="request">The client's chat request.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation.</param>
     /// <returns>200 OK with the AI reply envelope.</returns>
-    [HttpPost("ask")]
+    [HttpPost]
     [Authorize(Roles = "HR_Manager,Employee")]
     [ProducesResponseType(typeof(AskChatResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
@@ -89,12 +95,22 @@ public class AiChatGatewayController : ControllerBase
             userId, companyId, conversationId);
 
         // -------- Build Node.js payload --------
+        // v8 contract: the internal body includes a nested context object with identity + conversationId.
+        // The flat message and conversationId are also kept for backward compatibility with
+        // the current Node.js implementation which reads req.body.message and req.body.conversationId.
         var nodePayload = new
         {
             message        = request.Message,
             conversationId = conversationId,
             language       = request.Language,
-            fieldValues    = request.FieldValues
+            fieldValues    = request.FieldValues,
+            context = new
+            {
+                userId       = userId.ToString(),
+                companyId    = companyId.ToString(),
+                role         = role,
+                conversationId = conversationId
+            }
         };
 
         var internalApiKey = _configuration["AiNode:InternalApiKey"]
@@ -170,7 +186,7 @@ public class AiChatGatewayController : ControllerBase
         return Ok(response);
     }
 
-    // -------- GET /api/chat/history --------
+    // -------- GET /api/ai/chat/history --------
 
     /// <summary>
     /// Proxies the chat history request to the Node.js AI service.
