@@ -54,7 +54,7 @@ public class InternalAiDocumentController : ControllerBase
         return Ok(response);
     }
 
-    [HttpPost("documents/save")]
+    [HttpPost("ai/documents/save")]
     public async Task<IActionResult> SaveGeneratedDocument([FromBody] SaveDocumentRequest request, CancellationToken cancellationToken)
     {
         if (!ModelState.IsValid)
@@ -62,24 +62,23 @@ public class InternalAiDocumentController : ControllerBase
 
         var companyId = GetXCompanyId();
 
-        // Validate metadata companyId matches the trusted header
-        if (!Guid.TryParse(request.Metadata.CompanyId, out var metadataCompanyId) || metadataCompanyId != companyId)
+        Guid? employeeId = null;
+        if (!string.IsNullOrWhiteSpace(request.EmployeeId))
         {
-            return NotFound(new { error = new { code = "company_not_found", message = "Cross-tenant request denied." } });
-        }
+            if (!Guid.TryParse(request.EmployeeId, out var parsedEmployeeId))
+            {
+                return BadRequest(new { error = new { code = "validation_error", message = "Invalid employeeId format." } });
+            }
 
-        if (!Guid.TryParse(request.Metadata.EmployeeId, out var employeeId))
-        {
-            return BadRequest(new { error = new { code = "validation_error", message = "Invalid employeeId format." } });
-        }
+            // Validate employee exists in the company
+            var employeeExists = await _dbContext.EmployeeProfiles
+                .AnyAsync(e => e.UserId == parsedEmployeeId && e.Department.CompanyId == companyId, cancellationToken);
 
-        // Validate employee exists in the company
-        var employeeExists = await _dbContext.EmployeeProfiles
-            .AnyAsync(e => e.UserId == employeeId && e.Department.CompanyId == companyId, cancellationToken);
-
-        if (!employeeExists)
-        {
-            return NotFound(new { error = new { code = "employee_not_found", message = "Employee not found." } });
+            if (!employeeExists)
+            {
+                return NotFound(new { error = new { code = "employee_not_found", message = "Employee not found." } });
+            }
+            employeeId = parsedEmployeeId;
         }
 
         var document = new GeneratedDocument

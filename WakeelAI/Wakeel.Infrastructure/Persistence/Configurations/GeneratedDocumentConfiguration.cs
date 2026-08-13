@@ -38,6 +38,7 @@ public class GeneratedDocumentConfiguration : IEntityTypeConfiguration<Generated
         builder.HasOne(d => d.Employee)
             .WithMany()
             .HasForeignKey(d => d.EmployeeId)
+            .IsRequired(false)
             .OnDelete(DeleteBehavior.Cascade);
     }
 }

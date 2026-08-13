@@ -25,7 +25,7 @@ public record AskChatResponse
 
     /// <summary>List of knowledge sources cited in the reply.</summary>
     [JsonPropertyName("sources")]
-    public List<string> Sources { get; init; } = new();
+    public List<CitationDto> Sources { get; init; } = new();
 
     /// <summary>
     /// Fields the AI still needs to collect to complete a multi-step action.

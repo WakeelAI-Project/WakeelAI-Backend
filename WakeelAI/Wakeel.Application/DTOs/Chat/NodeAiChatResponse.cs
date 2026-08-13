@@ -20,7 +20,7 @@ public record NodeAiChatResponse
 
     /// <summary>Knowledge sources cited by the AI in its reply.</summary>
     [JsonPropertyName("sources")]
-    public List<string> Sources { get; init; } = new();
+    public List<CitationDto> Sources { get; init; } = new();
 
     /// <summary>Missing fields the AI still needs from the user to complete an action.</summary>
     [JsonPropertyName("missing_fields")]

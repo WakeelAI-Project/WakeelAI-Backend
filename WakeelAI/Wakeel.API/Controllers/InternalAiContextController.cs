@@ -52,6 +52,8 @@ public class InternalAiContextController : ControllerBase
         }
 
         var annualBalance = profile.LeaveBalances.FirstOrDefault(b => b.LeaveType == "Annual");
+        var sickBalance = profile.LeaveBalances.FirstOrDefault(b => b.LeaveType == "Sick");
+        var unpaidBalance = profile.LeaveBalances.FirstOrDefault(b => b.LeaveType == "Unpaid");
 
         var response = new EmployeeContextResponse
         {
@@ -60,13 +62,29 @@ public class InternalAiContextController : ControllerBase
             FullName = profile.User.FullName,
             Role = role,
             Department = profile.Department?.Name,
+            JobTitle = profile.JobTitle,
             EmploymentStatus = profile.User.IsActive ? "Active" : "Inactive",
-            LeaveBalance = annualBalance != null ? new LeaveBalanceContextDto
+            LeaveBalance = new EmployeeLeaveBalancesDto
             {
-                Annual = annualBalance.TotalDays ?? 0,
-                Used = annualBalance.UsedDays,
-                Remaining = (annualBalance.TotalDays ?? 0) - annualBalance.UsedDays
-            } : null
+                Annual = annualBalance != null ? new LeaveBalanceContextDto
+                {
+                    TotalDays = annualBalance.TotalDays ?? 0,
+                    UsedDays = annualBalance.UsedDays,
+                    RemainingDays = (annualBalance.TotalDays ?? 0) - annualBalance.UsedDays
+                } : null,
+                Sick = sickBalance != null ? new LeaveBalanceContextDto
+                {
+                    TotalDays = sickBalance.TotalDays ?? 0,
+                    UsedDays = sickBalance.UsedDays,
+                    RemainingDays = (sickBalance.TotalDays ?? 0) - sickBalance.UsedDays
+                } : null,
+                Unpaid = unpaidBalance != null ? new LeaveBalanceContextDto
+                {
+                    TotalDays = unpaidBalance.TotalDays ?? 0,
+                    UsedDays = unpaidBalance.UsedDays,
+                    RemainingDays = (unpaidBalance.TotalDays ?? 0) - unpaidBalance.UsedDays
+                } : null
+            }
         };
 
         return Ok(response);
@@ -92,8 +110,14 @@ public class InternalAiContextController : ControllerBase
         {
             CompanyId = companyId.ToString(),
             CompanyName = company.Name,
+            TaxId = string.IsNullOrEmpty(company.TaxId) ? null : company.TaxId,
             Industry = string.IsNullOrEmpty(company.Industry) ? null : company.Industry,
+            Address = string.IsNullOrEmpty(company.Address) ? null : company.Address,
+            PhoneNumber = string.IsNullOrEmpty(company.PhoneNumber) ? null : company.PhoneNumber,
+            Email = string.IsNullOrEmpty(company.Email) ? null : company.Email,
+            LogoUrl = string.IsNullOrEmpty(company.LogoUrl) ? null : company.LogoUrl,
             WorkingHours = string.IsNullOrEmpty(company.WorkingHours) ? null : company.WorkingHours,
+            RegisteredAt = company.RegisteredAt,
             PolicyAvailable = policyAvailable
         };
 

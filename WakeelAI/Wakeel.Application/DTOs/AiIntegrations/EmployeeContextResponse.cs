@@ -5,13 +5,13 @@ namespace Wakeel.Application.DTOs.AiIntegrations;
 
 public class EmployeeContextResponse
 {
-    [JsonPropertyName("userId")]
+    [JsonPropertyName("record_id")]
     public string UserId { get; set; } = string.Empty;
 
-    [JsonPropertyName("companyId")]
+    [JsonPropertyName("company_id")]
     public string CompanyId { get; set; } = string.Empty;
 
-    [JsonPropertyName("fullName")]
+    [JsonPropertyName("full_name")]
     public string FullName { get; set; } = string.Empty;
 
     [JsonPropertyName("role")]
@@ -20,21 +20,36 @@ public class EmployeeContextResponse
     [JsonPropertyName("department")]
     public string? Department { get; set; }
 
-    [JsonPropertyName("employmentStatus")]
+    [JsonPropertyName("job_title")]
+    public string? JobTitle { get; set; }
+
+    [JsonPropertyName("employment_status")]
     public string? EmploymentStatus { get; set; }
 
-    [JsonPropertyName("leaveBalance")]
-    public LeaveBalanceContextDto? LeaveBalance { get; set; }
+    [JsonPropertyName("leave_balance")]
+    public EmployeeLeaveBalancesDto? LeaveBalance { get; set; }
+}
+
+public class EmployeeLeaveBalancesDto
+{
+    [JsonPropertyName("annual")]
+    public LeaveBalanceContextDto? Annual { get; set; }
+
+    [JsonPropertyName("sick")]
+    public LeaveBalanceContextDto? Sick { get; set; }
+
+    [JsonPropertyName("unpaid")]
+    public LeaveBalanceContextDto? Unpaid { get; set; }
 }
 
 public class LeaveBalanceContextDto
 {
-    [JsonPropertyName("annual")]
-    public int Annual { get; set; }
+    [JsonPropertyName("total_days")]
+    public int TotalDays { get; set; }
 
-    [JsonPropertyName("used")]
-    public int Used { get; set; }
+    [JsonPropertyName("used_days")]
+    public int UsedDays { get; set; }
 
-    [JsonPropertyName("remaining")]
-    public int Remaining { get; set; }
+    [JsonPropertyName("remaining_days")]
+    public int RemainingDays { get; set; }
 }
