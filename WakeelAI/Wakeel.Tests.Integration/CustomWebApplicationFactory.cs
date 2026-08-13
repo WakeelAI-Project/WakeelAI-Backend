@@ -28,7 +28,10 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IDisp
         {
             configBuilder.AddInMemoryCollection(new[]
             {
-                new KeyValuePair<string, string?>("ConnectionStrings:DefaultConnection", TestConnectionString)
+                new KeyValuePair<string, string?>("ConnectionStrings:DefaultConnection", TestConnectionString),
+                // Required by InternalApiKeyMiddleware and AiNodeClient HttpClient at startup
+                new KeyValuePair<string, string?>("AiNode:InternalApiKey", "test-internal-key"),
+                new KeyValuePair<string, string?>("AiNode:BaseUrl", "http://localhost:3001")
             });
         });
 

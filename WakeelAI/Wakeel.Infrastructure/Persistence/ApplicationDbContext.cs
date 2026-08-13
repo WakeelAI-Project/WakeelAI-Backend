@@ -21,17 +21,18 @@ public class ApplicationDbContext : DbContext
     public DbSet<Department> Departments { get; set; } = null!;
     public DbSet<LeaveBalance> LeaveBalances { get; set; } = null!;
     public DbSet<LeaveRequest> LeaveRequests { get; set; } = null!;
+    public DbSet<CompanyHandbook> CompanyHandbooks { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
-        
-        // This will automatically apply CompanyConfiguration, UserConfiguration, 
-        // and EmployeeProfileConfiguration from this assembly.
+
+        // This will automatically apply all IEntityTypeConfiguration<T> implementations
+        // from this assembly (CompanyConfiguration, UserConfiguration, etc.)
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
 
         // Global tenant isolation filters. Inactive (no-op) when no tenant is resolved yet
-        // (e.g. during /auth/login, /auth/register-company, /auth/refresh) — strict once
+        // (e.g. during /auth/login, /auth/register-company, /auth/refresh) â€” strict once
         // TenantResolutionMiddleware has set a tenant from the JWT for this request.
         // Company and RefreshToken are intentionally NOT filtered: Company is the tenant
         // root itself, and RefreshToken lookups happen by hash before any tenant context exists.
@@ -49,5 +50,8 @@ public class ApplicationDbContext : DbContext
 
         modelBuilder.Entity<LeaveRequest>().HasQueryFilter(lr =>
             !_currentTenantService.HasTenant || lr.CompanyId == _currentTenantService.CompanyId);
+
+        modelBuilder.Entity<CompanyHandbook>().HasQueryFilter(h =>
+            !_currentTenantService.HasTenant || h.CompanyId == _currentTenantService.CompanyId);
     }
 }
