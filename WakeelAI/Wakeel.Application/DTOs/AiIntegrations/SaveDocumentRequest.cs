@@ -6,7 +6,7 @@ namespace Wakeel.Application.DTOs.AiIntegrations;
 public class SaveDocumentRequest
 {
     [Required]
-    [JsonPropertyName("documentType")]
+    [JsonPropertyName("document_type")]
     public string DocumentType { get; set; } = string.Empty;
 
     [Required]
@@ -14,21 +14,15 @@ public class SaveDocumentRequest
     public string Title { get; set; } = string.Empty;
 
     [Required]
-    [JsonPropertyName("content")]
+    [JsonPropertyName("content_html")]
     public string Content { get; set; } = string.Empty;
 
-    [Required]
+    [JsonPropertyName("employee_id")]
+    public string? EmployeeId { get; set; }
+
+    [JsonPropertyName("template_id")]
+    public string? TemplateId { get; set; }
+
     [JsonPropertyName("metadata")]
-    public SaveDocumentMetadata Metadata { get; set; } = null!;
-}
-
-public class SaveDocumentMetadata
-{
-    [Required]
-    [JsonPropertyName("employeeId")]
-    public string EmployeeId { get; set; } = string.Empty;
-
-    [Required]
-    [JsonPropertyName("companyId")]
-    public string CompanyId { get; set; } = string.Empty;
+    public object? Metadata { get; set; }
 }

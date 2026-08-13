@@ -119,7 +119,7 @@ public class InternalAiContextControllerTests : IClassFixture<CustomWebApplicati
     }
 
     [Fact]
-    public async Task GetEmployeeContext_ValidHeaders_ReturnsCamelCaseJson()
+    public async Task GetEmployeeContext_ValidHeaders_ReturnsSnakeCaseJson()
     {
         var (employeeId, companyId) = await SeedEmployeeAsync();
         var client = _factory.CreateClient();
@@ -131,16 +131,17 @@ public class InternalAiContextControllerTests : IClassFixture<CustomWebApplicati
         var json = await response.Content.ReadAsStringAsync();
         var doc = JsonDocument.Parse(json);
         
-        doc.RootElement.TryGetProperty("userId", out _).Should().BeTrue("Serialization must be camelCase");
-        doc.RootElement.GetProperty("userId").GetString().Should().Be(employeeId.ToString());
-        doc.RootElement.GetProperty("companyId").GetString().Should().Be(companyId.ToString());
-        doc.RootElement.GetProperty("fullName").GetString().Should().Be("Test Employee");
-        doc.RootElement.GetProperty("employmentStatus").GetString().Should().Be("Active");
+        doc.RootElement.TryGetProperty("record_id", out _).Should().BeTrue("Serialization must be snake_case");
+        doc.RootElement.GetProperty("record_id").GetString().Should().Be(employeeId.ToString());
+        doc.RootElement.GetProperty("company_id").GetString().Should().Be(companyId.ToString());
+        doc.RootElement.GetProperty("full_name").GetString().Should().Be("Test Employee");
+        doc.RootElement.GetProperty("employment_status").GetString().Should().Be("Active");
         
-        var balance = doc.RootElement.GetProperty("leaveBalance");
-        balance.GetProperty("annual").GetInt32().Should().Be(21);
-        balance.GetProperty("used").GetInt32().Should().Be(5);
-        balance.GetProperty("remaining").GetInt32().Should().Be(16);
+        var balance = doc.RootElement.GetProperty("leave_balance");
+        var annual = balance.GetProperty("annual");
+        annual.GetProperty("total_days").GetInt32().Should().Be(21);
+        annual.GetProperty("used_days").GetInt32().Should().Be(5);
+        annual.GetProperty("remaining_days").GetInt32().Should().Be(16);
     }
 
     [Fact]
@@ -157,7 +158,7 @@ public class InternalAiContextControllerTests : IClassFixture<CustomWebApplicati
     }
 
     [Fact]
-    public async Task GetCompanyContext_ValidHeaders_ReturnsCamelCaseJson()
+    public async Task GetCompanyContext_ValidHeaders_ReturnsSnakeCaseJson()
     {
         var (_, companyId) = await SeedEmployeeAsync();
         var client = _factory.CreateClient();
@@ -169,8 +170,8 @@ public class InternalAiContextControllerTests : IClassFixture<CustomWebApplicati
         var json = await response.Content.ReadAsStringAsync();
         var doc = JsonDocument.Parse(json);
         
-        doc.RootElement.TryGetProperty("companyId", out _).Should().BeTrue("Serialization must be camelCase");
-        doc.RootElement.GetProperty("companyId").GetString().Should().Be(companyId.ToString());
-        doc.RootElement.TryGetProperty("companyName", out _).Should().BeTrue();
+        doc.RootElement.TryGetProperty("id", out _).Should().BeTrue("Serialization must be snake_case");
+        doc.RootElement.GetProperty("id").GetString().Should().Be(companyId.ToString());
+        doc.RootElement.TryGetProperty("name", out _).Should().BeTrue();
     }
 }

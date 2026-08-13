@@ -9,7 +9,7 @@ public class GeneratedDocument
 {
     public Guid Id { get; set; }
     public Guid CompanyId { get; set; }
-    public Guid EmployeeId { get; set; }
+    public Guid? EmployeeId { get; set; }
     
     public string DocumentType { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
@@ -21,5 +21,5 @@ public class GeneratedDocument
     
     // Navigation properties
     public Company Company { get; set; } = null!;
-    public EmployeeProfile Employee { get; set; } = null!;
+    public EmployeeProfile? Employee { get; set; }
 }

@@ -99,6 +99,8 @@ public class AiChatGatewayController : ControllerBase
         var nodePayload = new
         {
             message  = request.Message,
+            language = request.Language,
+            field_values = request.FieldValues,
             context  = new
             {
                 userId         = userId.ToString(),
@@ -241,6 +243,68 @@ public class AiChatGatewayController : ControllerBase
         catch (HttpRequestException ex)
         {
             _logger.LogError(ex, "Chat history: Failed to reach Node.js AI service.");
+            return StatusCode(StatusCodes.Status502BadGateway,
+                new ApiErrorResponse { Error = "ai_unavailable", Message = "AI service is currently unavailable.", Status = 502 });
+        }
+
+        // Forward the raw response body from Node.js as-is
+        var rawBody = await nodeResponse.Content.ReadAsStringAsync(cancellationToken);
+        return new ContentResult
+        {
+            Content     = rawBody,
+            ContentType = "application/json",
+            StatusCode  = (int)nodeResponse.StatusCode
+        };
+    }
+
+    // -------- GET /api/ai/chat/conversations --------
+
+    /// <summary>
+    /// Proxies the conversations list request to the Node.js AI service.
+    /// </summary>
+    /// <param name="page">Page number (1-indexed).</param>
+    /// <param name="limit">Number of conversations per page.</param>
+    /// <param name="cancellationToken">A token to monitor for cancellation.</param>
+    /// <returns>200 OK with the conversations list payload forwarded from Node.js.</returns>
+    [HttpGet("conversations")]
+    [Authorize(Roles = "HR_Manager,Employee")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status502BadGateway)]
+    public async Task<IActionResult> GetConversations(
+        [FromQuery] int page  = 1,
+        [FromQuery] int limit = 20,
+        CancellationToken cancellationToken = default)
+    {
+        var userId    = GetUserId();
+        var companyId = GetCompanyId();
+        var role      = GetRole();
+
+        var internalApiKey = _configuration["AiNode:InternalApiKey"]
+            ?? throw new InvalidOperationException("AiNode:InternalApiKey is not configured.");
+
+        var nodeUrl = $"/api/ai/chat/conversations?page={page}&limit={limit}";
+
+        var client = _httpClientFactory.CreateClient("AiNodeClient");
+
+        using var nodeRequest = new HttpRequestMessage(HttpMethod.Get, nodeUrl);
+        nodeRequest.Headers.Add("X-Internal-API-Key", internalApiKey);
+        nodeRequest.Headers.Add("X-User-Id",    userId.ToString());
+        nodeRequest.Headers.Add("X-Company-Id", companyId.ToString());
+        nodeRequest.Headers.Add("X-Role",        role);
+
+        HttpResponseMessage nodeResponse;
+        try
+        {
+            nodeResponse = await client.SendAsync(nodeRequest, cancellationToken);
+        }
+        catch (TaskCanceledException)
+        {
+            return StatusCode(StatusCodes.Status504GatewayTimeout,
+                new ApiErrorResponse { Error = "ai_timeout", Message = "The AI service did not respond in time.", Status = 504 });
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Chat conversations: Failed to reach Node.js AI service.");
             return StatusCode(StatusCodes.Status502BadGateway,
                 new ApiErrorResponse { Error = "ai_unavailable", Message = "AI service is currently unavailable.", Status = 502 });
         }
