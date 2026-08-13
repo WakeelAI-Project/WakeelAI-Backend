@@ -22,6 +22,9 @@ public class ApplicationDbContext : DbContext
     public DbSet<LeaveBalance> LeaveBalances { get; set; } = null!;
     public DbSet<LeaveRequest> LeaveRequests { get; set; } = null!;
     public DbSet<CompanyHandbook> CompanyHandbooks { get; set; } = null!;
+    public DbSet<DocumentTemplate> DocumentTemplates { get; set; } = null!;
+    public DbSet<GeneratedDocument> GeneratedDocuments { get; set; } = null!;
+    public DbSet<LeaveAttachment> LeaveAttachments { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -53,5 +56,14 @@ public class ApplicationDbContext : DbContext
 
         modelBuilder.Entity<CompanyHandbook>().HasQueryFilter(h =>
             !_currentTenantService.HasTenant || h.CompanyId == _currentTenantService.CompanyId);
+
+        modelBuilder.Entity<DocumentTemplate>().HasQueryFilter(t =>
+            !_currentTenantService.HasTenant || t.CompanyId == _currentTenantService.CompanyId);
+
+        modelBuilder.Entity<GeneratedDocument>().HasQueryFilter(d =>
+            !_currentTenantService.HasTenant || d.CompanyId == _currentTenantService.CompanyId);
+
+        modelBuilder.Entity<LeaveAttachment>().HasQueryFilter(a =>
+            !_currentTenantService.HasTenant || a.CompanyId == _currentTenantService.CompanyId);
     }
 }

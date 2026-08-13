@@ -263,6 +263,32 @@ public class InternalAiLeaveControllerTests : IClassFixture<CustomWebApplication
     }
 
     [Fact]
+    public async Task CreateDraft_SickLeaveWithInvalidAttachmentUrl_Returns422()
+    {
+        // Arrange
+        var (employeeId, companyId) = await SeedEmployeeAsync();
+        var client = _factory.CreateClient();
+
+        using var request = BuildInternalRequest(
+            HttpMethod.Post, "/api/ai/leave-requests",
+            psk: ValidPsk,
+            userId:    employeeId.ToString(),
+            companyId: companyId.ToString(),
+            role:      "Employee",
+            body: new { leave_type = "Sick", start_date = "2026-09-01", end_date = "2026-09-02", attachment_url = "https://invalid-url.com/file.pdf" });
+
+        // Act
+        var response = await client.SendAsync(request);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+
+        var json = await response.Content.ReadAsStringAsync();
+        var doc  = JsonDocument.Parse(json);
+        doc.RootElement.GetProperty("error").GetString().Should().Be("invalid_attachment");
+    }
+
+    [Fact]
     public async Task SubmitDraft_NonExistentRequest_Returns404()
     {
         // Arrange
