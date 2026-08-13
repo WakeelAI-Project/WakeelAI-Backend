@@ -88,13 +88,18 @@ public class AiChatGatewayController : ControllerBase
             "Chat ask: UserId={UserId}, CompanyId={CompanyId}, ConversationId={ConversationId}",
             userId, companyId, conversationId);
 
-        // -------- Build Node.js payload --------
+        // -------- Build Node.js payload (API Doc v8 contract) --------
+        // Identity fields are wrapped inside a context object per the updated AI service contract.
         var nodePayload = new
         {
-            message        = request.Message,
-            conversationId = conversationId,
-            language       = request.Language,
-            fieldValues    = request.FieldValues
+            message  = request.Message,
+            context  = new
+            {
+                userId         = userId.ToString(),
+                companyId      = companyId.ToString(),
+                role           = role,
+                conversationId = conversationId
+            }
         };
 
         var internalApiKey = _configuration["AiNode:InternalApiKey"]
