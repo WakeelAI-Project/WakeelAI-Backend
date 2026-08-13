@@ -7,6 +7,8 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Wakeel.Application.DTOs.LeaveRequests;
 using Wakeel.Application.Interfaces.Services;
+using Wakeel.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 
 namespace Wakeel.API.Controllers;
 
@@ -28,6 +30,7 @@ namespace Wakeel.API.Controllers;
 public class InternalAiLeaveController : ControllerBase
 {
     private readonly ILeaveRequestService _leaveRequestService;
+    private readonly ApplicationDbContext _dbContext;
     private readonly ILogger<InternalAiLeaveController> _logger;
 
     /// <summary>
@@ -35,9 +38,11 @@ public class InternalAiLeaveController : ControllerBase
     /// </summary>
     public InternalAiLeaveController(
         ILeaveRequestService leaveRequestService,
+        ApplicationDbContext dbContext,
         ILogger<InternalAiLeaveController> logger)
     {
         _leaveRequestService = leaveRequestService;
+        _dbContext           = dbContext;
         _logger              = logger;
     }
 
@@ -76,6 +81,16 @@ public class InternalAiLeaveController : ControllerBase
         _logger.LogInformation(
             "Internal AI leave draft: EmployeeId={EmployeeId}, CompanyId={CompanyId}, LeaveType={LeaveType}",
             employeeId, companyId, dto.LeaveType);
+
+        if (!string.IsNullOrWhiteSpace(dto.AttachmentUrl))
+        {
+            var isValidAttachment = await _dbContext.LeaveAttachments
+                .AnyAsync(a => a.Url == dto.AttachmentUrl && a.CompanyId == companyId, cancellationToken);
+            if (!isValidAttachment)
+            {
+                return UnprocessableEntity(new ApiErrorResponse { Error = "invalid_attachment", Message = "Invalid attachment URL or cross-company request.", Status = 422 });
+            }
+        }
 
         try
         {

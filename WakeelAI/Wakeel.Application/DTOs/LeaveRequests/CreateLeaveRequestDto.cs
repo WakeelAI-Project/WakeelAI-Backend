@@ -21,4 +21,7 @@ public class CreateLeaveRequestDto
     [JsonPropertyName("reason")]
     [MaxLength(500, ErrorMessage = "reason cannot exceed 500 characters.")]
     public string? Reason { get; set; }
+
+    [JsonPropertyName("attachment_url")]
+    public string? AttachmentUrl { get; set; }
 }

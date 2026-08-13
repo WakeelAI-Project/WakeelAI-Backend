@@ -8,6 +8,9 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Wakeel.Application.Interfaces;
+using Wakeel.Domain.Entities;
+using Wakeel.Infrastructure.Persistence;
+using System.Security.Claims;
 
 namespace Wakeel.API.Controllers;
 
@@ -23,6 +26,7 @@ namespace Wakeel.API.Controllers;
 public class LeaveAttachmentController : ControllerBase
 {
     private readonly IFileService _fileService;
+    private readonly ApplicationDbContext _dbContext;
     private readonly ILogger<LeaveAttachmentController> _logger;
 
     private static readonly string[] AllowedExtensions = { ".pdf", ".jpg", ".jpeg", ".png" };
@@ -31,9 +35,10 @@ public class LeaveAttachmentController : ControllerBase
     /// <summary>
     /// Initializes a new instance of the LeaveAttachmentController.
     /// </summary>
-    public LeaveAttachmentController(IFileService fileService, ILogger<LeaveAttachmentController> logger)
+    public LeaveAttachmentController(IFileService fileService, ApplicationDbContext dbContext, ILogger<LeaveAttachmentController> logger)
     {
         _fileService = fileService;
+        _dbContext   = dbContext;
         _logger      = logger;
     }
 
@@ -50,10 +55,10 @@ public class LeaveAttachmentController : ControllerBase
     [ProducesResponseType(StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> UploadAttachment(
-        IFormFile? attachment,
+        [FromForm(Name = "file")] IFormFile? file,
         CancellationToken cancellationToken)
     {
-        if (attachment == null || attachment.Length == 0)
+        if (file == null || file.Length == 0)
             return BadRequest(new ApiErrorResponse
             {
                 Error   = "validation_error",
@@ -61,28 +66,43 @@ public class LeaveAttachmentController : ControllerBase
                 Status  = 400
             });
 
-        if (attachment.Length > MaxFileSizeBytes)
+        if (file.Length > MaxFileSizeBytes)
             return BadRequest(new ApiErrorResponse
             {
-                Error   = "file_too_large",
+                Error   = "invalid_attachment",
                 Message = "Attachment exceeds the 10 MB size limit.",
                 Status  = 400
             });
 
-        var extension = Path.GetExtension(attachment.FileName).ToLowerInvariant();
+        var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
         if (!AllowedExtensions.Contains(extension))
             return BadRequest(new ApiErrorResponse
             {
-                Error   = "invalid_file_type",
+                Error   = "invalid_attachment",
                 Message = "Only PDF, JPG, and PNG files are allowed.",
                 Status  = 400
             });
 
-        using var stream = attachment.OpenReadStream();
-        var attachmentUrl = await _fileService.SaveFileAsync(stream, attachment.FileName, "leave-requests", cancellationToken);
+        using var stream = file.OpenReadStream();
+        var attachmentUrl = await _fileService.SaveFileAsync(stream, file.FileName, "leave-requests", cancellationToken);
 
-        _logger.LogInformation("Leave attachment uploaded: {Url}", attachmentUrl);
+        var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("user_id")!);
+        var companyId = Guid.Parse(User.FindFirstValue("company_id")!);
 
-        return Created(string.Empty, new { attachment_url = attachmentUrl });
+        var attachmentRecord = new LeaveAttachment
+        {
+            Id = Guid.NewGuid(),
+            CompanyId = companyId,
+            EmployeeId = userId,
+            Url = attachmentUrl,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _dbContext.LeaveAttachments.Add(attachmentRecord);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("Leave attachment uploaded: {Url} with ID: {Id}", attachmentUrl, attachmentRecord.Id);
+
+        return Created(string.Empty, new { attachment_id = attachmentRecord.Id.ToString(), url = attachmentUrl });
     }
 }

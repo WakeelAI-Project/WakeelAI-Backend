@@ -18,7 +18,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IDisp
 {
     private readonly string _testDatabaseName = $"WakeelTestDb_{Guid.NewGuid():N}";
     private string TestConnectionString =>
-        $"Server=(local);Database={_testDatabaseName};Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=True;";
+        $"Server=(localdb)\\mssqllocaldb;Database={_testDatabaseName};Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=True;";
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
