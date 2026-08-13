@@ -55,7 +55,7 @@ public class LeaveAttachmentController : ControllerBase
     [ProducesResponseType(StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> UploadAttachment(
-        [FromForm(Name = "file")] IFormFile? file,
+        IFormFile? file,
         CancellationToken cancellationToken)
     {
         if (file == null || file.Length == 0)
