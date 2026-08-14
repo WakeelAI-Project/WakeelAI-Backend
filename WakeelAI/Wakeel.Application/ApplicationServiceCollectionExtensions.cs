@@ -28,6 +28,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<IDepartmentService, DepartmentService>();
         services.AddScoped<ILeaveRequestService, LeaveRequestService>();
         services.AddScoped<IDashboardService, DashboardService>();
+        services.AddScoped<IDocumentService, DocumentService>();
 
         return services;
     }

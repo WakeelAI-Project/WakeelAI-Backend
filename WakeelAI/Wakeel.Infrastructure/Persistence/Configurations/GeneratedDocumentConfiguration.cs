@@ -40,5 +40,17 @@ public class GeneratedDocumentConfiguration : IEntityTypeConfiguration<Generated
             .HasForeignKey(d => d.EmployeeId)
             .IsRequired(false)
             .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasOne(d => d.Template)
+            .WithMany()
+            .HasForeignKey(d => d.TemplateId)
+            .IsRequired(false)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder.HasOne(d => d.GeneratedByUser)
+            .WithMany()
+            .HasForeignKey(d => d.GeneratedByUserId)
+            .IsRequired(false)
+            .OnDelete(DeleteBehavior.SetNull);
     }
 }

@@ -48,6 +48,7 @@ public static class InfrastructureServiceCollectionExtensions
             services.AddScoped<IEmailSender, SmtpEmailSender>();
 
         services.AddScoped<IFileService, LocalFileService>();
+        services.AddScoped<IPdfGeneratorService, QuestPdfGeneratorService>();
 
         // Register the named HttpClient for Node.js AI service calls.
         // 60-second timeout is required to prevent orphaned LLM generation tasks.
