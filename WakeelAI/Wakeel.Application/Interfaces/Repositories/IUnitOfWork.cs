@@ -43,6 +43,22 @@ public interface IUnitOfWork : IDisposable
     /// Gets the repository for <see cref="Wakeel.Domain.Entities.LeaveRequest"/> entities.
     /// </summary>
     ILeaveRequestRepository LeaveRequests { get; }
+
+    /// <summary>
+    /// Gets the repository for <see cref="Wakeel.Domain.Entities.DocumentTemplate"/> entities.
+    /// </summary>
+    IDocumentTemplateRepository DocumentTemplates { get; }
+
+    /// <summary>
+    /// Gets the repository for <see cref="Wakeel.Domain.Entities.GeneratedDocument"/> entities.
+    /// </summary>
+    IGeneratedDocumentRepository GeneratedDocuments { get; }
+
+    /// <summary>
+    /// Gets the repository for <see cref="Wakeel.Domain.Entities.AuditLog"/> entities.
+    /// </summary>
+    IAuditLogRepository AuditLogs { get; }
+
     /// <summary>
     /// Persists all pending changes tracked by this unit of work to the database.
     /// </summary>

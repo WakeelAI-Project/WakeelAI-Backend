@@ -37,6 +37,9 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<ICompanyRepository, CompanyRepository>();
         services.AddScoped<IDepartmentRepository, DepartmentRepository>();
         services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
+        services.AddScoped<IDocumentTemplateRepository, DocumentTemplateRepository>();
+        services.AddScoped<IGeneratedDocumentRepository, GeneratedDocumentRepository>();
+        services.AddScoped<IAuditLogRepository, AuditLogRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
 
 

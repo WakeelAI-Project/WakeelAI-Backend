@@ -30,6 +30,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<IDashboardService, DashboardService>();
         services.AddScoped<IDocumentService, DocumentService>();
         services.AddScoped<ITemplateService, TemplateService>();
+        services.AddScoped<IAuditLogService, AuditLogService>();
 
         return services;
     }

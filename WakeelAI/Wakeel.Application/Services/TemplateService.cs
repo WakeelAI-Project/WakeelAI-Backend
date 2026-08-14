@@ -6,33 +6,34 @@ using Microsoft.EntityFrameworkCore;
 using Wakeel.Application.DTOs.Templates;
 using Wakeel.Application.Interfaces;
 using Wakeel.Domain.Entities;
-using Wakeel.Infrastructure.Persistence;
+using Wakeel.Application.Interfaces.Repositories;
 
 namespace Wakeel.Application.Services;
 
 public class TemplateService : ITemplateService
 {
-    private readonly ApplicationDbContext _dbContext;
+    private readonly IUnitOfWork _unitOfWork;
     private readonly ICurrentTenantService _currentTenantService;
 
-    public TemplateService(ApplicationDbContext dbContext, ICurrentTenantService currentTenantService)
+    public TemplateService(IUnitOfWork unitOfWork, ICurrentTenantService currentTenantService)
     {
-        _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
+        _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
         _currentTenantService = currentTenantService ?? throw new ArgumentNullException(nameof(currentTenantService));
     }
 
     public async Task<(IEnumerable<TemplateDto> Data, int Total)> GetTemplatesAsync(int page, int limit, string? documentType)
     {
-        var query = _dbContext.DocumentTemplates.AsQueryable();
+        var allTemplates = await _unitOfWork.DocumentTemplates.GetAllAsync();
+        var query = allTemplates.AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(documentType))
         {
             query = query.Where(t => t.DocumentType == documentType);
         }
 
-        var total = await query.CountAsync();
+        var total = query.Count();
 
-        var templates = await query
+        var templates = query
             .OrderBy(t => t.Name)
             .Skip((page - 1) * limit)
             .Take(limit)
@@ -44,14 +45,14 @@ public class TemplateService : ITemplateService
                 ContentTemplate = t.ContentTemplate,
                 IsActive = t.IsActive
             })
-            .ToListAsync();
+            .ToList();
 
         return (templates, total);
     }
 
     public async Task<TemplateDto> GetTemplateByIdAsync(Guid id)
     {
-        var template = await _dbContext.DocumentTemplates.FindAsync(id);
+        var template = await _unitOfWork.DocumentTemplates.GetByIdAsync(id);
         if (template == null)
             throw new InvalidOperationException("template_not_found");
 
@@ -74,15 +75,16 @@ public class TemplateService : ITemplateService
 
         var template = new DocumentTemplate
         {
-            CompanyId = _currentTenantService.CompanyId,
+            Id = Guid.NewGuid(),
+            CompanyId = _currentTenantService.CompanyId ?? throw new InvalidOperationException("no_tenant"),
             DocumentType = request.DocumentType,
             Name = request.Name,
             ContentTemplate = request.ContentTemplate,
             IsActive = request.IsActive
         };
 
-        _dbContext.DocumentTemplates.Add(template);
-        await _dbContext.SaveChangesAsync();
+        await _unitOfWork.DocumentTemplates.AddAsync(template);
+        await _unitOfWork.SaveChangesAsync();
 
         return new TemplateDto
         {
@@ -96,7 +98,7 @@ public class TemplateService : ITemplateService
 
     public async Task<TemplateDto> UpdateTemplateAsync(Guid id, UpdateTemplateRequest request)
     {
-        var template = await _dbContext.DocumentTemplates.FindAsync(id);
+        var template = await _unitOfWork.DocumentTemplates.GetByIdAsync(id);
         if (template == null)
             throw new InvalidOperationException("template_not_found");
 
@@ -115,7 +117,8 @@ public class TemplateService : ITemplateService
             template.IsActive = request.IsActive.Value;
         }
 
-        await _dbContext.SaveChangesAsync();
+        _unitOfWork.DocumentTemplates.Update(template);
+        await _unitOfWork.SaveChangesAsync();
 
         return new TemplateDto
         {
@@ -129,28 +132,29 @@ public class TemplateService : ITemplateService
 
     public async Task DeleteTemplateAsync(Guid id)
     {
-        var template = await _dbContext.DocumentTemplates.FindAsync(id);
+        var template = await _unitOfWork.DocumentTemplates.GetByIdAsync(id);
         if (template == null)
             throw new InvalidOperationException("template_not_found");
 
-        _dbContext.DocumentTemplates.Remove(template);
-        await _dbContext.SaveChangesAsync();
+        _unitOfWork.DocumentTemplates.Remove(template);
+        await _unitOfWork.SaveChangesAsync();
     }
 
     private async Task DeactivateOtherTemplatesAsync(string documentType, Guid? excludeTemplateId)
     {
-        var activeTemplatesQuery = _dbContext.DocumentTemplates
-            .Where(t => t.DocumentType == documentType && t.IsActive);
+        var allActive = await _unitOfWork.DocumentTemplates.FindAsync(t => t.DocumentType == documentType && t.IsActive);
+        
+        var toDeactivate = allActive.AsEnumerable();
 
         if (excludeTemplateId.HasValue)
         {
-            activeTemplatesQuery = activeTemplatesQuery.Where(t => t.Id != excludeTemplateId.Value);
+            toDeactivate = toDeactivate.Where(t => t.Id != excludeTemplateId.Value);
         }
 
-        var activeTemplates = await activeTemplatesQuery.ToListAsync();
-        foreach (var t in activeTemplates)
+        foreach (var t in toDeactivate)
         {
             t.IsActive = false;
+            _unitOfWork.DocumentTemplates.Update(t);
         }
     }
 }

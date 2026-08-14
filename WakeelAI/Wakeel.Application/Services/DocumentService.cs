@@ -5,25 +5,25 @@ using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Wakeel.Application.DTOs.Documents;
 using Wakeel.Application.Interfaces;
+using Wakeel.Application.Interfaces.Repositories;
 using Wakeel.Domain.Entities;
-using Wakeel.Infrastructure.Persistence; // Assume DbContext is accessible or through IUnitOfWork
 
 namespace Wakeel.Application.Services;
 
 public class DocumentService : IDocumentService
 {
-    private readonly ApplicationDbContext _dbContext;
+    private readonly IUnitOfWork _unitOfWork;
     private readonly ICurrentTenantService _currentTenantService;
     private readonly IPdfGeneratorService _pdfGeneratorService;
     private readonly IEmailSender _emailSender;
 
     public DocumentService(
-        ApplicationDbContext dbContext,
+        IUnitOfWork unitOfWork,
         ICurrentTenantService currentTenantService,
         IPdfGeneratorService pdfGeneratorService,
         IEmailSender emailSender)
     {
-        _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
+        _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
         _currentTenantService = currentTenantService ?? throw new ArgumentNullException(nameof(currentTenantService));
         _pdfGeneratorService = pdfGeneratorService ?? throw new ArgumentNullException(nameof(pdfGeneratorService));
         _emailSender = emailSender ?? throw new ArgumentNullException(nameof(emailSender));
@@ -32,7 +32,8 @@ public class DocumentService : IDocumentService
     public async Task<(IEnumerable<DocumentSummary> Data, int Total)> GetDocumentsAsync(
         int page, int limit, string? type, string? status, Guid? employeeId, string? sort, string? order)
     {
-        var query = _dbContext.GeneratedDocuments.AsQueryable();
+        var allDocs = await _unitOfWork.GeneratedDocuments.GetAllAsync();
+        var query = allDocs.AsQueryable();
 
         if (!string.IsNullOrEmpty(type))
             query = query.Where(d => d.DocumentType == type);
@@ -53,9 +54,9 @@ public class DocumentService : IDocumentService
             _ => query.OrderByDescending(d => d.CreatedAt)
         };
 
-        var total = await query.CountAsync();
+        var total = query.Count();
 
-        var documents = await query
+        var documents = query
             .Skip((page - 1) * limit)
             .Take(limit)
             .Select(d => new DocumentSummary
@@ -68,15 +69,14 @@ public class DocumentService : IDocumentService
                 CreatedAt = d.CreatedAt,
                 UpdatedAt = d.UpdatedAt
             })
-            .ToListAsync();
+            .ToList();
 
         return (documents, total);
     }
 
     public async Task<DocumentDetail> GetDocumentByIdAsync(Guid documentId)
     {
-        var document = await _dbContext.GeneratedDocuments
-            .FirstOrDefaultAsync(d => d.Id == documentId);
+        var document = await _unitOfWork.GeneratedDocuments.GetByIdAsync(documentId);
 
         if (document == null)
             throw new InvalidOperationException("document_not_found");
@@ -99,8 +99,7 @@ public class DocumentService : IDocumentService
 
     public async Task UpdateDocumentAsync(Guid documentId, UpdateDocumentRequest request)
     {
-        var document = await _dbContext.GeneratedDocuments
-            .FirstOrDefaultAsync(d => d.Id == documentId);
+        var document = await _unitOfWork.GeneratedDocuments.GetByIdAsync(documentId);
 
         if (document == null)
             throw new InvalidOperationException("document_not_found");
@@ -116,13 +115,13 @@ public class DocumentService : IDocumentService
 
         document.UpdatedAt = DateTime.UtcNow;
 
-        await _dbContext.SaveChangesAsync();
+        _unitOfWork.GeneratedDocuments.Update(document);
+        await _unitOfWork.SaveChangesAsync();
     }
 
     public async Task FinalizeDocumentAsync(Guid documentId)
     {
-        var document = await _dbContext.GeneratedDocuments
-            .FirstOrDefaultAsync(d => d.Id == documentId);
+        var document = await _unitOfWork.GeneratedDocuments.GetByIdAsync(documentId);
 
         if (document == null)
             throw new InvalidOperationException("document_not_found");
@@ -141,14 +140,13 @@ public class DocumentService : IDocumentService
         document.FinalizedAt = DateTime.UtcNow;
         document.UpdatedAt = DateTime.UtcNow;
 
-        await _dbContext.SaveChangesAsync();
+        _unitOfWork.GeneratedDocuments.Update(document);
+        await _unitOfWork.SaveChangesAsync();
     }
 
     public async Task SendEmailAsync(Guid documentId, SendEmailRequest request)
     {
-        var document = await _dbContext.GeneratedDocuments
-            .Include(d => d.Employee)
-            .FirstOrDefaultAsync(d => d.Id == documentId);
+        var document = await _unitOfWork.GeneratedDocuments.GetByIdAsync(documentId);
 
         if (document == null)
             throw new InvalidOperationException("document_not_found");
@@ -159,9 +157,13 @@ public class DocumentService : IDocumentService
         var emailTo = request.EmailTo;
         if (string.IsNullOrWhiteSpace(emailTo))
         {
-            if (document.Employee == null || string.IsNullOrWhiteSpace(document.Employee.Email))
+            if (!document.EmployeeId.HasValue)
+                throw new InvalidOperationException("employee_not_assigned");
+            
+            var user = await _unitOfWork.Users.GetByIdAsync(document.EmployeeId.Value);
+            if (user == null || string.IsNullOrWhiteSpace(user.Email))
                 throw new InvalidOperationException("employee_no_email");
-            emailTo = document.Employee.Email;
+            emailTo = user.Email;
         }
 
         try
@@ -176,6 +178,7 @@ public class DocumentService : IDocumentService
 
         document.EmailSentTo = emailTo;
         document.EmailSentAt = DateTime.UtcNow;
-        await _dbContext.SaveChangesAsync();
+        _unitOfWork.GeneratedDocuments.Update(document);
+        await _unitOfWork.SaveChangesAsync();
     }
 }
