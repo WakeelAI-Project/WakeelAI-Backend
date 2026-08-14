@@ -21,6 +21,9 @@ public class UnitOfWork : IUnitOfWork
     private IDepartmentRepository? _departments;
     private ILeaveBalanceRepository? _leaveBalances;
     private ILeaveRequestRepository? _leaveRequests;
+    private IDocumentTemplateRepository? _documentTemplates;
+    private IGeneratedDocumentRepository? _generatedDocuments;
+    private IAuditLogRepository? _auditLogs;
     private bool _disposed;
 
     public UnitOfWork(ApplicationDbContext dbContext)
@@ -56,6 +59,10 @@ public class UnitOfWork : IUnitOfWork
     /// Repository for leave request records.
     /// </summary>
     public ILeaveRequestRepository LeaveRequests => _leaveRequests ??= new LeaveRequestRepository(_dbContext);
+
+    public IDocumentTemplateRepository DocumentTemplates => _documentTemplates ??= new DocumentTemplateRepository(_dbContext);
+    public IGeneratedDocumentRepository GeneratedDocuments => _generatedDocuments ??= new GeneratedDocumentRepository(_dbContext);
+    public IAuditLogRepository AuditLogs => _auditLogs ??= new AuditLogRepository(_dbContext);
 
     /// <inheritdoc />
     public async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)

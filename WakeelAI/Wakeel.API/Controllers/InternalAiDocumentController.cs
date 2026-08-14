@@ -81,11 +81,21 @@ public class InternalAiDocumentController : ControllerBase
             employeeId = parsedEmployeeId;
         }
 
+        Guid? templateId = null;
+        if (!string.IsNullOrWhiteSpace(request.TemplateId))
+        {
+            if (Guid.TryParse(request.TemplateId, out var parsedTemplateId))
+            {
+                templateId = parsedTemplateId;
+            }
+        }
+
         var document = new GeneratedDocument
         {
             Id = Guid.NewGuid(),
             CompanyId = companyId,
             EmployeeId = employeeId,
+            TemplateId = templateId,
             DocumentType = request.DocumentType,
             Title = request.Title,
             Content = request.Content,
@@ -97,11 +107,13 @@ public class InternalAiDocumentController : ControllerBase
         _dbContext.GeneratedDocuments.Add(document);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
-        var response = new SaveDocumentResponse
+        var response = new 
         {
-            Success = true,
-            DocumentId = document.Id.ToString(),
-            Status = document.Status
+            success = true,
+            document_id = document.Id.ToString(),
+            document_type = document.DocumentType,
+            status = document.Status,
+            created_at = document.CreatedAt
         };
 
         return Ok(response);

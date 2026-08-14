@@ -10,11 +10,18 @@ public class GeneratedDocument
     public Guid Id { get; set; }
     public Guid CompanyId { get; set; }
     public Guid? EmployeeId { get; set; }
-    
+    public Guid? TemplateId { get; set; }
+    public Guid? GeneratedByUserId { get; set; }
+
     public string DocumentType { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;
     public string Status { get; set; } = "Draft";
+    
+    public string? PdfUrl { get; set; }
+    public string? EmailSentTo { get; set; }
+    public DateTime? EmailSentAt { get; set; }
+    public DateTime? FinalizedAt { get; set; }
     
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
@@ -22,4 +29,6 @@ public class GeneratedDocument
     // Navigation properties
     public Company Company { get; set; } = null!;
     public EmployeeProfile? Employee { get; set; }
+    public DocumentTemplate? Template { get; set; }
+    public User? GeneratedByUser { get; set; }
 }

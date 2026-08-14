@@ -52,6 +52,7 @@ public class InternalAiLeaveController : ControllerBase
 
     private Guid GetEmployeeId() => Guid.Parse(Request.Headers["X-User-Id"]!);
     private Guid GetCompanyId()  => Guid.Parse(Request.Headers["X-Company-Id"]!);
+    private string GetRole()     => Request.Headers["X-Role"].ToString();
 
     // -------- POST /api/ai/leave-requests --------
 
@@ -74,6 +75,9 @@ public class InternalAiLeaveController : ControllerBase
     {
         if (!ModelState.IsValid)
             return BadRequest(new ApiErrorResponse { Error = "validation_error", Message = "Invalid payload.", Status = 400 });
+
+        if (GetRole() != "Employee")
+            return StatusCode(StatusCodes.Status403Forbidden, new ApiErrorResponse { Error = "forbidden", Message = "Only employees can request leave.", Status = 403 });
 
         var employeeId = GetEmployeeId();
         var companyId  = GetCompanyId();
@@ -133,6 +137,9 @@ public class InternalAiLeaveController : ControllerBase
         [FromRoute] Guid requestId,
         CancellationToken cancellationToken)
     {
+        if (GetRole() != "Employee")
+            return StatusCode(StatusCodes.Status403Forbidden, new ApiErrorResponse { Error = "forbidden", Message = "Only employees can submit leave requests.", Status = 403 });
+
         var employeeId = GetEmployeeId();
         var companyId  = GetCompanyId();
 
@@ -168,6 +175,9 @@ public class InternalAiLeaveController : ControllerBase
         [FromRoute] Guid requestId,
         CancellationToken cancellationToken)
     {
+        if (GetRole() != "Employee")
+            return StatusCode(StatusCodes.Status403Forbidden, new ApiErrorResponse { Error = "forbidden", Message = "Only employees can cancel leave requests.", Status = 403 });
+
         var employeeId = GetEmployeeId();
         var companyId  = GetCompanyId();
 

@@ -37,6 +37,9 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<ICompanyRepository, CompanyRepository>();
         services.AddScoped<IDepartmentRepository, DepartmentRepository>();
         services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
+        services.AddScoped<IDocumentTemplateRepository, DocumentTemplateRepository>();
+        services.AddScoped<IGeneratedDocumentRepository, GeneratedDocumentRepository>();
+        services.AddScoped<IAuditLogRepository, AuditLogRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
 
 
@@ -48,6 +51,7 @@ public static class InfrastructureServiceCollectionExtensions
             services.AddScoped<IEmailSender, SmtpEmailSender>();
 
         services.AddScoped<IFileService, LocalFileService>();
+        services.AddScoped<IPdfGeneratorService, QuestPdfGeneratorService>();
 
         // Register the named HttpClient for Node.js AI service calls.
         // 60-second timeout is required to prevent orphaned LLM generation tasks.

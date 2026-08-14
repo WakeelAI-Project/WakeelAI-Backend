@@ -18,6 +18,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Wakeel.Application\Wakeel.Application.csproj" />
     <ProjectReference Include="..\Wakeel.Domain\Wakeel.Domain.csproj" />
+    <ProjectReference Include="..\Wakeel.API\Wakeel.API.csproj" />
   </ItemGroup>
 
 </Project>
