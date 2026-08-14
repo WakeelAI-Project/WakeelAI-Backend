@@ -45,12 +45,12 @@ public class GeneratedDocumentConfiguration : IEntityTypeConfiguration<Generated
             .WithMany()
             .HasForeignKey(d => d.TemplateId)
             .IsRequired(false)
-            .OnDelete(DeleteBehavior.SetNull);
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasOne(d => d.GeneratedByUser)
             .WithMany()
             .HasForeignKey(d => d.GeneratedByUserId)
             .IsRequired(false)
-            .OnDelete(DeleteBehavior.SetNull);
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }

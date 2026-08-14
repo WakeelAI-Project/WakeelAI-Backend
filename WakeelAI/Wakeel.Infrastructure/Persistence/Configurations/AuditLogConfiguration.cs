@@ -32,6 +32,6 @@ public class AuditLogConfiguration : IEntityTypeConfiguration<AuditLog>
             .WithMany()
             .HasForeignKey(a => a.UserId)
             .IsRequired(false)
-            .OnDelete(DeleteBehavior.SetNull);
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }

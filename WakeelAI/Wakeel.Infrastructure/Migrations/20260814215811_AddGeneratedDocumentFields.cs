@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -63,7 +63,7 @@ namespace Wakeel.Infrastructure.Migrations
                 column: "TemplateId",
                 principalTable: "DocumentTemplates",
                 principalColumn: "Id",
-                onDelete: ReferentialAction.SetNull);
+                onDelete: ReferentialAction.Restrict);
 
             migrationBuilder.AddForeignKey(
                 name: "FK_GeneratedDocuments_USERS_GeneratedByUserId",
@@ -71,7 +71,7 @@ namespace Wakeel.Infrastructure.Migrations
                 column: "GeneratedByUserId",
                 principalTable: "USERS",
                 principalColumn: "Id",
-                onDelete: ReferentialAction.SetNull);
+                onDelete: ReferentialAction.Restrict);
         }
 
         /// <inheritdoc />
