@@ -51,7 +51,7 @@ public class InternalApiKeyMiddleware
         if (p.StartsWith("/api/ai/employee-context", StringComparison.OrdinalIgnoreCase)) return true;
         if (p.StartsWith("/api/ai/company-context", StringComparison.OrdinalIgnoreCase)) return true;
         if (p.StartsWith("/api/ai/templates/active", StringComparison.OrdinalIgnoreCase)) return true;
-        if (p.StartsWith("/api/documents/save", StringComparison.OrdinalIgnoreCase)) return true;
+        if (p.StartsWith("/api/ai/documents/save", StringComparison.OrdinalIgnoreCase)) return true;
         if (p.StartsWith("/api/ai/leave-requests", StringComparison.OrdinalIgnoreCase)) return true;
 
         // Do NOT intercept /api/ai/chat or /api/knowledge/ingest
