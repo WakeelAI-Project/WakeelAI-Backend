@@ -318,4 +318,63 @@ public class AiChatGatewayController : ControllerBase
             StatusCode  = (int)nodeResponse.StatusCode
         };
     }
+    // -------- DELETE /api/ai/chat/conversations/{conversationId} --------
+
+    /// <summary>
+    /// Proxies the conversation deletion request to the Node.js AI service.
+    /// </summary>
+    /// <param name="conversationId">The ID of the conversation to delete.</param>
+    /// <param name="cancellationToken">A token to monitor for cancellation.</param>
+    /// <returns>200 OK on success.</returns>
+    [HttpDelete("conversations/{conversationId}")]
+    [Authorize(Roles = "HR_Manager,Employee")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status502BadGateway)]
+    public async Task<IActionResult> DeleteConversation(
+        [FromRoute] string conversationId,
+        CancellationToken cancellationToken = default)
+    {
+        var userId = GetUserId();
+        var companyId = GetCompanyId();
+        var role = GetRole();
+
+        var internalApiKey = _configuration["AiNode:InternalApiKey"]
+            ?? throw new InvalidOperationException("AiNode:InternalApiKey is not configured.");
+
+        var nodeUrl = $"/api/ai/chat/conversations/{Uri.EscapeDataString(conversationId)}";
+
+        var client = _httpClientFactory.CreateClient("AiNodeClient");
+
+        using var nodeRequest = new HttpRequestMessage(HttpMethod.Delete, nodeUrl);
+        nodeRequest.Headers.Add("X-Internal-API-Key", internalApiKey);
+        nodeRequest.Headers.Add("X-User-Id", userId.ToString());
+        nodeRequest.Headers.Add("X-Company-Id", companyId.ToString());
+        nodeRequest.Headers.Add("X-Role", role);
+
+        HttpResponseMessage nodeResponse;
+        try
+        {
+            nodeResponse = await client.SendAsync(nodeRequest, cancellationToken);
+        }
+        catch (TaskCanceledException)
+        {
+            return StatusCode(StatusCodes.Status504GatewayTimeout,
+                new ApiErrorResponse { Error = "ai_timeout", Message = "The AI service did not respond in time.", Status = 504 });
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Chat conversations: Failed to reach Node.js AI service for deletion.");
+            return StatusCode(StatusCodes.Status502BadGateway,
+                new ApiErrorResponse { Error = "ai_unavailable", Message = "AI service is currently unavailable.", Status = 502 });
+        }
+
+        var rawBody = await nodeResponse.Content.ReadAsStringAsync(cancellationToken);
+        return new ContentResult
+        {
+            Content = rawBody,
+            ContentType = "application/json",
+            StatusCode = (int)nodeResponse.StatusCode
+        };
+    }
 }
