@@ -75,13 +75,24 @@ public class InternalApiKeyMiddleware
             return;
         }
 
-        // -------- Step 1: Validate PSK --------
+        // -------- Step 1: Validate PSK (Constant-Time Comparison) --------
         var providedApiKey = context.Request.Headers["X-Internal-API-Key"].ToString();
 
-        if (string.IsNullOrEmpty(providedApiKey) || providedApiKey != _expectedApiKey)
+        if (string.IsNullOrEmpty(providedApiKey))
         {
-            _logger.LogWarning("Internal API request to {Path} rejected: invalid or missing X-Internal-API-Key.", context.Request.Path);
-            await WriteErrorResponseAsync(context, StatusCodes.Status401Unauthorized, "unauthorized", "Missing or invalid X-Internal-API-Key.");
+            _logger.LogWarning("Internal API request to {Path} rejected: missing X-Internal-API-Key.", context.Request.Path);
+            await WriteErrorResponseAsync(context, StatusCodes.Status401Unauthorized, "unauthorized", "Missing X-Internal-API-Key.");
+            return;
+        }
+
+        var providedKeyBytes = System.Text.Encoding.UTF8.GetBytes(providedApiKey);
+        var expectedKeyBytes = System.Text.Encoding.UTF8.GetBytes(_expectedApiKey);
+
+        if (providedKeyBytes.Length != expectedKeyBytes.Length || 
+            !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(providedKeyBytes, expectedKeyBytes))
+        {
+            _logger.LogWarning("Internal API request to {Path} rejected: invalid X-Internal-API-Key.", context.Request.Path);
+            await WriteErrorResponseAsync(context, StatusCodes.Status401Unauthorized, "unauthorized", "Invalid X-Internal-API-Key.");
             return;
         }
 
