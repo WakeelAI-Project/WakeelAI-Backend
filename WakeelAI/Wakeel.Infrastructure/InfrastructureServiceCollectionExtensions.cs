@@ -61,6 +61,10 @@ public static class InfrastructureServiceCollectionExtensions
                 configuration["AiNode:BaseUrl"]
                 ?? throw new InvalidOperationException("AiNode:BaseUrl is not configured."));
             client.Timeout = TimeSpan.FromSeconds(60);
+            
+            var apiKey = configuration["AiNode:InternalApiKey"]
+                ?? throw new InvalidOperationException("AiNode:InternalApiKey is not configured.");
+            client.DefaultRequestHeaders.Add("X-Internal-API-Key", apiKey);
         });
 
         services.AddJwtAuthentication(configuration);
