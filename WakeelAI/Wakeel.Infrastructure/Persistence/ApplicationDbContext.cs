@@ -20,6 +20,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<RefreshToken> RefreshTokens { get; set; } = null!;
     public DbSet<Department> Departments { get; set; } = null!;
     public DbSet<LeaveBalance> LeaveBalances { get; set; } = null!;
+    public DbSet<LeaveEntitlement> LeaveEntitlements { get; set; } = null!;
     public DbSet<LeaveRequest> LeaveRequests { get; set; } = null!;
     public DbSet<CompanyHandbook> CompanyHandbooks { get; set; } = null!;
     public DbSet<DocumentTemplate> DocumentTemplates { get; set; } = null!;

@@ -41,9 +41,11 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IDisp
             var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
             // Fresh local database per test run: drop if it somehow already exists,
-            // then apply all real migrations so the schema matches production exactly.
+            // then create the schema from the current model. Use EnsureCreated here
+            // to avoid EF Core complaining about pending model changes caused by
+            // test-time modifications (seed data GUIDs or newly added entities).
             dbContext.Database.EnsureDeleted();
-            dbContext.Database.Migrate();
+            dbContext.Database.EnsureCreated();
         });
     }
 

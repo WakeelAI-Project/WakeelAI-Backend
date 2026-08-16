@@ -82,6 +82,13 @@ public partial class Program
 
         app.UseHttpsRedirection();
 
+        // Global error handling middleware must be early in the pipeline so it can
+        // translate exceptions into the standardized API v2 error envelope.
+        app.UseMiddleware<GlobalErrorHandlingMiddleware>();
+
+        // Rate limiting will be applied after authentication so the middleware can
+        // use the authenticated user's claims to key per-user limits.
+
         // Ensure wwwroot exists so StaticFileMiddleware can serve files, even if created lazily later
         var webRoot = app.Environment.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
         if (!Directory.Exists(webRoot))
@@ -99,6 +106,9 @@ public partial class Program
         // but the InternalApiKeyMiddleware itself bypasses JWT for /api/ai/ routes entirely.
         app.UseMiddleware<InternalApiKeyMiddleware>();
         app.UseMiddleware<TenantResolutionMiddleware>();
+        // Rate limiting - enforce per-user limits for chat/document generation and global default.
+        // Requires IMemoryCache to be registered by AddInfrastructureServices (or AddMemoryCache elsewhere).
+        app.UseMiddleware<RateLimitingMiddleware>();
         app.UseAuthorization();
 
 

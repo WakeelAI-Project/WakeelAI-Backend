@@ -18,13 +18,15 @@ public class EmployeeService : IEmployeeService
     private readonly IPasswordHasher _passwordHasher;
     private readonly ILogger<EmployeeService> _logger;
     private readonly IEmailSender _emailSender;
+    private readonly IResourceLoader _resourceLoader;
 
-    public EmployeeService(IUnitOfWork unitOfWork, IPasswordHasher passwordHasher, ILogger<EmployeeService> logger, IEmailSender emailSender)
+    public EmployeeService(IUnitOfWork unitOfWork, IPasswordHasher passwordHasher, ILogger<EmployeeService> logger, IEmailSender emailSender, IResourceLoader resourceLoader)
     {
         _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
         _passwordHasher = passwordHasher ?? throw new ArgumentNullException(nameof(passwordHasher));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _emailSender = emailSender ?? throw new ArgumentNullException(nameof(emailSender));
+        _resourceLoader = resourceLoader ?? throw new ArgumentNullException(nameof(resourceLoader));
     }
 
     public async Task<CreateEmployeeResponse> CreateEmployeeAsync(Guid actorUserId, Guid companyId, CreateEmployeeRequest request, CancellationToken cancellationToken = default)
@@ -118,11 +120,11 @@ public class EmployeeService : IEmployeeService
 
     public async Task<EmployeeDetailResponse?> GetEmployeeAsync(Guid companyId, Guid recordId, CancellationToken cancellationToken = default)
     {
-        var profile = await _unitOfWork.EmployeeProfiles.GetByIdAsync(recordId, cancellationToken);
+        var profile = await _resourceLoader.GetEmployeeProfileAsync(recordId, cancellationToken);
         if (profile is null)
             return null;
 
-        var user = await _unitOfWork.Users.GetByIdAsync(profile.UserId, cancellationToken);
+        var user = await _resourceLoader.GetUserAsync(profile.UserId, cancellationToken);
         if (user is null || user.CompanyId != companyId)
             return null;
 
@@ -155,7 +157,7 @@ public class EmployeeService : IEmployeeService
         };
     }
 
-    public async Task<EmployeeListResponse> ListEmployeesAsync(Guid companyId, string? status, int page, int limit, CancellationToken cancellationToken = default)
+    public async Task<EmployeeListResponse> ListEmployeesAsync(Guid companyId, string? status, string? search, int page, int limit, CancellationToken cancellationToken = default)
     {
         page = Math.Max(1, page);
         limit = Math.Clamp(limit, 1, 100);
@@ -163,19 +165,38 @@ public class EmployeeService : IEmployeeService
         var profiles = await _unitOfWork.EmployeeProfiles.GetAllAsync(cancellationToken);
         var departmentNamesById = (await _unitOfWork.Departments.GetAllAsync(cancellationToken))
             .ToDictionary(d => d.Id, d => d.Name);
+        var users = await _unitOfWork.Users.GetAllAsync(cancellationToken);
 
-        var joined = from p in profiles
-                     join u in await _unitOfWork.Users.GetAllAsync(cancellationToken) on p.UserId equals u.Id
-                     where u.CompanyId == companyId
-                     select new EmployeeListItem
-                     {
-                         RecordId = p.UserId,
-                         UserId = u.Id,
-                         FullName = u.FullName,
-                         JobTitle = p.JobTitle,
-                         Department = departmentNamesById.GetValueOrDefault(p.DepartmentId),
-                         EmploymentStatus = GetEmploymentStatus(u.IsActive)
-                     };
+        // Join profiles with users and include email for search matching
+        var joinedRaw = from p in profiles
+                        join u in users on p.UserId equals u.Id
+                        where u.CompanyId == companyId
+                        select new
+                        {
+                            Profile = p,
+                            User = u,
+                            DepartmentName = departmentNamesById.GetValueOrDefault(p.DepartmentId)
+                        };
+
+        // Apply search if provided (matches full name or email, case-insensitive, trimmed)
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var q = search.Trim();
+            joinedRaw = joinedRaw.Where(x =>
+                (!string.IsNullOrEmpty(x.User.FullName) && x.User.FullName.Contains(q, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrEmpty(x.User.Email) && x.User.Email.Contains(q, StringComparison.OrdinalIgnoreCase))
+            );
+        }
+
+        var joined = joinedRaw.Select(x => new EmployeeListItem
+        {
+            RecordId = x.Profile.UserId,
+            UserId = x.User.Id,
+            FullName = x.User.FullName,
+            JobTitle = x.Profile.JobTitle,
+            Department = x.DepartmentName,
+            EmploymentStatus = GetEmploymentStatus(x.User.IsActive)
+        });
 
         if (string.Equals(status, "Active", StringComparison.OrdinalIgnoreCase))
             joined = joined.Where(item => item.EmploymentStatus == "Active");
@@ -196,11 +217,11 @@ public class EmployeeService : IEmployeeService
 
     public async Task<EmployeeDetailResponse?> UpdateEmployeeAsync(Guid companyId, Guid recordId, UpdateEmployeeRequest request, CancellationToken cancellationToken = default)
     {
-        var profile = await _unitOfWork.EmployeeProfiles.GetByIdAsync(recordId, cancellationToken);
+        var profile = await _resourceLoader.GetEmployeeProfileAsync(recordId, cancellationToken);
         if (profile is null)
             return null;
 
-        var user = await _unitOfWork.Users.GetByIdAsync(profile.UserId, cancellationToken);
+        var user = await _resourceLoader.GetUserAsync(profile.UserId, cancellationToken);
         if (user is null || user.CompanyId != companyId)
             return null;
 
@@ -252,11 +273,11 @@ public class EmployeeService : IEmployeeService
 
     public async Task<bool> DeactivateEmployeeAsync(Guid companyId, Guid recordId, CancellationToken cancellationToken = default)
     {
-        var profile = await _unitOfWork.EmployeeProfiles.GetByIdAsync(recordId, cancellationToken);
+        var profile = await _resourceLoader.GetEmployeeProfileAsync(recordId, cancellationToken);
         if (profile is null)
             return false;
 
-        var user = await _unitOfWork.Users.GetByIdAsync(profile.UserId, cancellationToken);
+        var user = await _resourceLoader.GetUserAsync(profile.UserId, cancellationToken);
         if (user is null || user.CompanyId != companyId)
             return false;
 
