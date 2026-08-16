@@ -8,6 +8,9 @@ public record NodeTemplateClausesResponse
     [JsonPropertyName("success")]
     public bool Success { get; init; }
 
+    [JsonPropertyName("message")]
+    public string? Message { get; init; }
+
     [JsonPropertyName("clauses")]
     public List<GeneratedClauseDto> Clauses { get; init; } = new();
 }
