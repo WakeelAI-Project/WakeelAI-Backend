@@ -52,9 +52,6 @@ public class GenerateClausesSecurityTests : IClassFixture<CustomWebApplicationFa
         {
             builder.ConfigureTestServices(services =>
             {
-                var httpClientFactoryDescriptor = services.FirstOrDefault(d => d.ServiceType == typeof(IHttpClientFactory));
-                if (httpClientFactoryDescriptor != null)
-                    services.Remove(httpClientFactoryDescriptor);
                 services.AddHttpClient("AiNodeClient")
                         .ConfigurePrimaryHttpMessageHandler(() => mockAiNodeHandler);
             });
@@ -125,7 +122,7 @@ public class GenerateClausesSecurityTests : IClassFixture<CustomWebApplicationFa
         {
             name = "Test Template",
             document_type = "EMPLOYMENT_CONTRACT",
-            content = "Template content"
+            content_template = "Template content"
         });
         createTplRes.EnsureSuccessStatusCode();
         var templateId = JsonDocument.Parse(await createTplRes.Content.ReadAsStringAsync()).RootElement.GetProperty("id").GetGuid();
