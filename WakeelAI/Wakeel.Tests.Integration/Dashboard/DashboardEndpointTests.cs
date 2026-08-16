@@ -39,6 +39,8 @@ public class DashboardEndpointTests : IClassFixture<CustomWebApplicationFactory>
         {
             var userIds = await db.Users.Where(u => u.CompanyId == companyId).Select(u => u.Id).ToListAsync();
 
+            db.GeneratedDocuments.RemoveRange(db.GeneratedDocuments.Where(gd => gd.CompanyId == companyId));
+            db.DocumentTemplates.RemoveRange(db.DocumentTemplates.Where(dt => dt.CompanyId == companyId));
             db.LeaveRequests.RemoveRange(db.LeaveRequests.Where(lr => lr.CompanyId == companyId));
             db.LeaveBalances.RemoveRange(db.LeaveBalances.Where(lb => userIds.Contains(lb.EmployeeId)));
             db.EmployeeProfiles.RemoveRange(db.EmployeeProfiles.Where(ep => userIds.Contains(ep.UserId)));
@@ -85,7 +87,7 @@ public class DashboardEndpointTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
-    public async Task Summary_GivenNoLeaveRequests_ShouldReturnZeroPendingAndPlaceholdersForUnimplementedFeatures()
+    public async Task Summary_GivenNoLeaveRequests_ShouldReturnZeroPendingAndDocuments()
     {
         var (hrToken, _, _) = await SeedCompanyWithHrAsync();
 
@@ -94,8 +96,7 @@ public class DashboardEndpointTests : IClassFixture<CustomWebApplicationFactory>
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
         body.GetProperty("pending_leave_requests").GetInt32().Should().Be(0);
-        // No CompanyHandbook / GeneratedDocument entities exist yet - these stay placeholders.
-        body.GetProperty("handbook_uploaded").GetBoolean().Should().BeFalse();
+        body.GetProperty("employees_on_leave_today").GetInt32().Should().Be(0);
         body.GetProperty("generated_documents_count").GetInt32().Should().Be(0);
     }
 
@@ -146,6 +147,53 @@ public class DashboardEndpointTests : IClassFixture<CustomWebApplicationFactory>
         var response = await SendAsync(HttpMethod.Get, "/api/dashboard/summary", ownerToken);
 
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task Summary_ShouldCountEmployeesOnLeaveTodayCorrectly()
+    {
+        var (hrToken, companyId, departmentId) = await SeedCompanyWithHrAsync();
+
+        var employee1 = await CreateEmployeeAsync(hrToken, departmentId);
+        var employee2 = await CreateEmployeeAsync(hrToken, departmentId);
+
+        // Employee 1 on leave today
+        var today = DateTime.UtcNow;
+        await SeedLeaveRequestForDatesAsync(companyId, employee1, "Approved", today.AddDays(-1), today.AddDays(1));
+        
+        // Employee 1 has an overlapping approved leave (should not be counted twice)
+        await SeedLeaveRequestForDatesAsync(companyId, employee1, "Approved", today, today.AddDays(2));
+        
+        // Employee 2 on leave but in the future
+        await SeedLeaveRequestForDatesAsync(companyId, employee2, "Approved", today.AddDays(5), today.AddDays(10));
+        
+        // Employee 1 has another pending leave (should not count as on leave today)
+        await SeedLeaveRequestForDatesAsync(companyId, employee1, "Pending", today.AddDays(-1), today.AddDays(1));
+
+        var response = await SendAsync(HttpMethod.Get, "/api/dashboard/summary", hrToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("employees_on_leave_today").GetInt32().Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Summary_ShouldCountGeneratedDocumentsForCallersCompanyOnly()
+    {
+        var (hrTokenA, companyIdA, _) = await SeedCompanyWithHrAsync();
+        var (hrTokenB, companyIdB, _) = await SeedCompanyWithHrAsync();
+
+        await SeedGeneratedDocumentAsync(companyIdA);
+        await SeedGeneratedDocumentAsync(companyIdA);
+        await SeedGeneratedDocumentAsync(companyIdA);
+
+        await SeedGeneratedDocumentAsync(companyIdB);
+
+        var response = await SendAsync(HttpMethod.Get, "/api/dashboard/summary", hrTokenA);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("generated_documents_count").GetInt32().Should().Be(3);
     }
 
     // ------------------------------------------------------------
@@ -219,7 +267,7 @@ public class DashboardEndpointTests : IClassFixture<CustomWebApplicationFactory>
         return body.GetProperty("id").GetGuid();
     }
 
-    private async Task<Guid> CreateEmployeeAsync(string hrToken, Guid departmentId)
+    private async Task<Guid> CreateEmployeeAsync(string hrToken, Guid departmentId, string? nationalId = null)
     {
         var response = await SendAsync(HttpMethod.Post, "/api/employees", hrToken, new
         {
@@ -229,7 +277,8 @@ public class DashboardEndpointTests : IClassFixture<CustomWebApplicationFactory>
             department_id = departmentId,
             hire_date = "2026-01-01",
             salary = 10000,
-            contract_type = "Full-Time"
+            contract_type = "Full-Time",
+            national_id = nationalId
         });
         response.EnsureSuccessStatusCode();
 
@@ -238,6 +287,11 @@ public class DashboardEndpointTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     private async Task SeedLeaveRequestAsync(Guid companyId, Guid employeeId, string status)
+    {
+        await SeedLeaveRequestForDatesAsync(companyId, employeeId, status, new DateTime(2026, 1, 1), new DateTime(2026, 1, 2));
+    }
+
+    private async Task SeedLeaveRequestForDatesAsync(Guid companyId, Guid employeeId, string status, DateTime start, DateTime end)
     {
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
@@ -248,12 +302,46 @@ public class DashboardEndpointTests : IClassFixture<CustomWebApplicationFactory>
             EmployeeId = employeeId,
             CompanyId = companyId,
             LeaveType = "Annual",
-            StartDate = new DateOnly(2026, 1, 1),
-            EndDate = new DateOnly(2026, 1, 2),
-            DaysRequested = 1,
+            StartDate = DateOnly.FromDateTime(start),
+            EndDate = DateOnly.FromDateTime(end),
+            DaysRequested = (end - start).Days + 1,
             Status = status,
             CreatedAt = DateTime.UtcNow,
             SubmittedAt = DateTime.UtcNow
+        });
+
+        await db.SaveChangesAsync();
+    }
+
+    private async Task SeedGeneratedDocumentAsync(Guid companyId)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        var template = new Wakeel.Domain.Entities.DocumentTemplate
+        {
+            Id = Guid.NewGuid(),
+            CompanyId = companyId,
+            Name = "Template",
+            DocumentType = "Contract",
+            ContentTemplate = "Test content",
+            IsActive = true
+        };
+        db.DocumentTemplates.Add(template);
+
+        db.GeneratedDocuments.Add(new Wakeel.Domain.Entities.GeneratedDocument
+        {
+            Id = Guid.NewGuid(),
+            CompanyId = companyId,
+            TemplateId = template.Id,
+            EmployeeId = null,
+            PdfUrl = "http://example.com/doc",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+            DocumentType = "Contract",
+            Title = "Contract doc",
+            Content = "Hello",
+            Status = "Draft"
         });
 
         await db.SaveChangesAsync();

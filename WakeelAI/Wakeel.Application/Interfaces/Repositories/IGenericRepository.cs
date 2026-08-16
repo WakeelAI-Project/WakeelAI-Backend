@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq.Expressions;
 using System.Threading;
@@ -47,6 +47,13 @@ public interface IGenericRepository<T> where T : class
     /// <param name="predicate">The filter expression to apply.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     Task<bool> AnyAsync(Expression<Func<T, bool>> predicate, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets the number of entities matching the given predicate.
+    /// </summary>
+    /// <param name="predicate">The filter expression to apply.</param>
+    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    Task<int> CountAsync(Expression<Func<T, bool>> predicate, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Adds a new entity to the change tracker. Does not persist changes to the database;
