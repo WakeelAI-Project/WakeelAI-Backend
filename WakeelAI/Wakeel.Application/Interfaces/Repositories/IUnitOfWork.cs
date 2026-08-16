@@ -60,6 +60,11 @@ public interface IUnitOfWork : IDisposable
     IAuditLogRepository AuditLogs { get; }
 
     /// <summary>
+    /// Gets the repository for <see cref="Wakeel.Domain.Entities.PasswordResetOtp"/> entities.
+    /// </summary>
+    IPasswordResetOtpRepository PasswordResetOtps { get; }
+
+    /// <summary>
     /// Persists all pending changes tracked by this unit of work to the database.
     /// </summary>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>

@@ -27,6 +27,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<GeneratedDocument> GeneratedDocuments { get; set; } = null!;
     public DbSet<LeaveAttachment> LeaveAttachments { get; set; } = null!;
     public DbSet<AuditLog> AuditLogs { get; set; } = null!;
+    public DbSet<PasswordResetOtp> PasswordResetOtps { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

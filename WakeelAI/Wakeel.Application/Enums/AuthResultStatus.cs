@@ -44,5 +44,20 @@ public enum AuthResultStatus
     /// <summary>
     /// The provided refresh token has expired and cannot be used to obtain new access tokens.
     /// </summary>
-    RefreshTokenExpired = 7
+    RefreshTokenExpired = 7,
+
+    /// <summary>
+    /// No matching, unexpired OTP record was found (or the submitted code was wrong).
+    /// </summary>
+    InvalidOtp = 8,
+
+    /// <summary>
+    /// A matching OTP record was found but it has expired.
+    /// </summary>
+    OtpExpired = 9,
+
+    /// <summary>
+    /// The OTP's failed-attempt counter exceeded the allowed threshold; the code was invalidated.
+    /// </summary>
+    TooManyOtpAttempts = 10
 }

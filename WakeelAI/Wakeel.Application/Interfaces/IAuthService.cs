@@ -61,4 +61,35 @@ public interface IAuthService
         CancellationToken cancellationToken = default
     );
     Task<(bool IsSuccess, string? ErrorMessage)> ChangePasswordAsync(Guid userId, ChangePasswordRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Issues a one-time password (OTP) for self-service password reset, emailed to the
+    /// given address. Always completes successfully from the caller's perspective — it
+    /// never reveals whether the email is registered, so the controller can return an
+    /// identical response regardless of outcome. Generating a new OTP invalidates any
+    /// previously issued, unexpired OTP for the same user.
+    /// </summary>
+    /// <param name="request">The request containing the email to send a reset code to.</param>
+    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    Task ForgotPasswordAsync(ForgotPasswordRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Completes a self-service password reset by verifying the OTP previously issued via
+    /// <see cref="ForgotPasswordAsync"/> and, if valid, replacing the user's password.
+    /// Unlike <see cref="ChangePasswordAsync"/>, this does not set MustChangePassword —
+    /// the user has already chosen their own password. Revokes all of the user's existing
+    /// refresh tokens on success.
+    /// </summary>
+    /// <param name="request">The email, submitted OTP, and new password.</param>
+    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <returns>
+    /// A tuple containing:
+    /// - IsSuccess: Whether the password was reset.
+    /// - ErrorMessage: A machine-readable error code if unsuccessful (null if successful).
+    /// - Status: Success, InvalidOtp, OtpExpired, TooManyOtpAttempts, or Failure.
+    /// </returns>
+    Task<(bool IsSuccess, string? ErrorMessage, AuthResultStatus Status)> ResetPasswordAsync(
+        ResetPasswordRequest request,
+        CancellationToken cancellationToken = default
+    );
 }

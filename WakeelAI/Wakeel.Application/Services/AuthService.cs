@@ -22,6 +22,7 @@ public class AuthService : IAuthService
     private readonly IPasswordHasher _passwordHasher;
     private readonly IJwtTokenGenerator _tokenGenerator;
     private readonly IRefreshTokenHasher _refreshTokenHasher;
+    private readonly IEmailSender _emailSender;
     private readonly ILogger<AuthService> _logger;
 
     public AuthService(
@@ -29,6 +30,7 @@ public class AuthService : IAuthService
         IPasswordHasher passwordHasher,
         IJwtTokenGenerator tokenGenerator,
         IRefreshTokenHasher refreshTokenHasher,
+        IEmailSender emailSender,
         ILogger<AuthService> logger
     )
     {
@@ -36,6 +38,7 @@ public class AuthService : IAuthService
         _passwordHasher = passwordHasher ?? throw new ArgumentNullException(nameof(passwordHasher));
         _tokenGenerator = tokenGenerator ?? throw new ArgumentNullException(nameof(tokenGenerator));
         _refreshTokenHasher = refreshTokenHasher ?? throw new ArgumentNullException(nameof(refreshTokenHasher));
+        _emailSender = emailSender ?? throw new ArgumentNullException(nameof(emailSender));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
     public async Task<(bool IsSuccess, string? ErrorMessage)> ChangePasswordAsync(Guid userId, ChangePasswordRequest request, CancellationToken cancellationToken = default)
@@ -290,6 +293,149 @@ public class AuthService : IAuthService
             _logger.LogError(ex, "Unexpected error during logout.");
             return (false, "An unexpected error occurred during logout.", AuthResultStatus.Failure);
         }
+    }
+
+    /// <summary>
+    /// How long an issued OTP remains valid.
+    /// </summary>
+    private static readonly TimeSpan OtpValidity = TimeSpan.FromMinutes(10);
+
+    /// <summary>
+    /// Number of wrong-code attempts allowed against a single OTP before it is invalidated.
+    /// </summary>
+    private const int MaxOtpFailedAttempts = 5;
+
+    /// <inheritdoc />
+    public async Task ForgotPasswordAsync(ForgotPasswordRequest request, CancellationToken cancellationToken = default)
+    {
+        if (request is null)
+            throw new ArgumentNullException(nameof(request));
+
+        try
+        {
+            var user = await _unitOfWork.Users.GetByEmailAsync(request.Email, cancellationToken);
+            if (user is null || !user.IsActive)
+            {
+                _logger.LogInformation("Forgot-password OTP requested for unknown or inactive email: {Email}", request.Email);
+                return;
+            }
+
+            var otp = GenerateOtp();
+
+            // Only the latest OTP is ever valid: drop any previous unexpired one for this user.
+            var existingOtps = await _unitOfWork.PasswordResetOtps.FindAsync(o => o.UserId == user.Id, cancellationToken);
+            foreach (var existing in existingOtps)
+                _unitOfWork.PasswordResetOtps.Remove(existing);
+
+            var record = new PasswordResetOtp
+            {
+                Id = Guid.NewGuid(),
+                UserId = user.Id,
+                OtpHash = _passwordHasher.HashPassword(otp),
+                ExpiresAt = DateTime.UtcNow.Add(OtpValidity),
+                FailedAttempts = 0,
+                CreatedAt = DateTime.UtcNow
+            };
+            await _unitOfWork.PasswordResetOtps.AddAsync(record, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var subject = "Your Wakeel password reset code";
+            var body = $"<p>Hello {user.FullName},</p><p>Your verification code is <strong>{otp}</strong>. It expires in 10 minutes.</p><p>If you didn't request this, you can safely ignore this email.</p>";
+            try
+            {
+                await _emailSender.SendEmailAsync(user.Email, subject, body, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to send forgot-password OTP email for UserId: {UserId}", user.Id);
+            }
+
+            _logger.LogInformation("Forgot-password OTP issued for UserId: {UserId}", user.Id);
+        }
+        catch (Exception ex)
+        {
+            // Swallow: the caller always returns an identical response regardless of
+            // outcome, so an internal failure here must not surface to the client.
+            _logger.LogError(ex, "Unexpected error during forgot-password flow for email: {Email}", request.Email);
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<(bool IsSuccess, string? ErrorMessage, AuthResultStatus Status)> ResetPasswordAsync(
+        ResetPasswordRequest request,
+        CancellationToken cancellationToken = default
+    )
+    {
+        if (request is null)
+            throw new ArgumentNullException(nameof(request));
+
+        try
+        {
+            var user = await _unitOfWork.Users.GetByEmailAsync(request.Email, cancellationToken);
+            if (user is null)
+                return (false, "invalid_otp", AuthResultStatus.InvalidOtp);
+
+            var record = await _unitOfWork.PasswordResetOtps.FirstOrDefaultAsync(
+                o => o.UserId == user.Id,
+                cancellationToken);
+            if (record is null)
+                return (false, "invalid_otp", AuthResultStatus.InvalidOtp);
+
+            if (record.ExpiresAt < DateTime.UtcNow)
+            {
+                _unitOfWork.PasswordResetOtps.Remove(record);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+                return (false, "otp_expired", AuthResultStatus.OtpExpired);
+            }
+
+            if (!_passwordHasher.VerifyPassword(request.Otp, record.OtpHash))
+            {
+                record.FailedAttempts++;
+
+                if (record.FailedAttempts >= MaxOtpFailedAttempts)
+                {
+                    _unitOfWork.PasswordResetOtps.Remove(record);
+                    await _unitOfWork.SaveChangesAsync(cancellationToken);
+                    _logger.LogWarning("Forgot-password OTP locked after too many failed attempts. UserId: {UserId}", user.Id);
+                    return (false, "too_many_attempts", AuthResultStatus.TooManyOtpAttempts);
+                }
+
+                _unitOfWork.PasswordResetOtps.Update(record);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+                return (false, "invalid_otp", AuthResultStatus.InvalidOtp);
+            }
+
+            user.PasswordHash = _passwordHasher.HashPassword(request.NewPassword);
+            _unitOfWork.Users.Update(user);
+            _unitOfWork.PasswordResetOtps.Remove(record);
+
+            var activeTokens = await _unitOfWork.RefreshTokens.FindAsync(
+                rt => rt.UserId == user.Id && !rt.IsRevoked,
+                cancellationToken);
+            foreach (var token in activeTokens)
+            {
+                token.IsRevoked = true;
+                _unitOfWork.RefreshTokens.Update(token);
+            }
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            _logger.LogInformation("Password reset via OTP completed for UserId: {UserId}", user.Id);
+            return (true, null, AuthResultStatus.Success);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error during OTP password reset for email: {Email}", request.Email);
+            return (false, "An unexpected error occurred while resetting the password.", AuthResultStatus.Failure);
+        }
+    }
+
+    /// <summary>
+    /// Generates a cryptographically random 6-digit numeric OTP, zero-padded (e.g. "042817").
+    /// </summary>
+    private static string GenerateOtp()
+    {
+        return System.Security.Cryptography.RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6");
     }
 
     /// <summary>
