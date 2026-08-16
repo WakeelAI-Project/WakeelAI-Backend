@@ -12,7 +12,6 @@ namespace Wakeel.API.Controllers;
 [Route("api/employees")]
 public class EmployeesController(IEmployeeService employeeService) : ControllerBase
 {
-    [Authorize(Roles = "HR_Manager")]
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateEmployeeRequest request, CancellationToken cancellationToken)
     {
@@ -22,6 +21,13 @@ public class EmployeesController(IEmployeeService employeeService) : ControllerB
         var companyIdClaim = User.FindFirst("company_id")?.Value;
         var userIdClaim = User.FindFirst("user_id")?.Value;
         if (!Guid.TryParse(companyIdClaim, out var companyId) || !Guid.TryParse(userIdClaim, out var userId))
+            return Forbid();
+
+        // Enforce HR-only creation at runtime to ensure role semantics even if role claim mapping
+        // or authorization behavior varies across test hosts.
+        var roleClaim = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value
+                        ?? User.FindFirst("role")?.Value;
+        if (!string.Equals(roleClaim, "HR_Manager", StringComparison.OrdinalIgnoreCase))
             return Forbid();
 
         try
@@ -74,7 +80,7 @@ public class EmployeesController(IEmployeeService employeeService) : ControllerB
 
     [Authorize(Roles = "HR_Manager")]
     [HttpGet]
-    public async Task<IActionResult> List([FromQuery] string? status, [FromQuery] int page = 1, [FromQuery] int limit = 20, CancellationToken cancellationToken = default)
+    public async Task<IActionResult> List([FromQuery] string? status, [FromQuery] string? search, [FromQuery] int page = 1, [FromQuery] int limit = 20, CancellationToken cancellationToken = default)
     {
         if (!string.IsNullOrWhiteSpace(status) &&
             !string.Equals(status, "Active", StringComparison.OrdinalIgnoreCase) &&
@@ -87,7 +93,7 @@ public class EmployeesController(IEmployeeService employeeService) : ControllerB
         if (!Guid.TryParse(companyIdClaim, out var companyId))
             return Forbid();
 
-        var list = await employeeService.ListEmployeesAsync(companyId, status, page, limit, cancellationToken);
+        var list = await employeeService.ListEmployeesAsync(companyId, status, search, page, limit, cancellationToken);
         return Ok(list);
     }
 

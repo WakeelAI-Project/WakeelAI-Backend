@@ -25,6 +25,7 @@ public class EmployeeServiceTests
     private readonly Mock<IPasswordHasher> _passwordHasherMock = new();
     private readonly Mock<ILogger<EmployeeService>> _loggerMock = new();
     private readonly Mock<IEmailSender> _emailSenderMock = new();
+    private readonly Mock<IResourceLoader> _resourceLoaderMock = new();
 
     private readonly EmployeeService _sut;
 
@@ -51,12 +52,20 @@ public class EmployeeServiceTests
         _passwordHasherMock
             .Setup(h => h.HashPassword(It.IsAny<string>()))
             .Returns("hashed_temp_password");
+        _resourceLoaderMock
+            .Setup(r => r.GetEmployeeProfileAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .Returns<Guid, CancellationToken>((id, ct) => _employeeProfileRepositoryMock.Object.GetByIdAsync(id, ct));
+
+        _resourceLoaderMock
+            .Setup(r => r.GetUserAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .Returns<Guid, CancellationToken>((id, ct) => _userRepositoryMock.Object.GetByIdAsync(id, ct));
 
         _sut = new EmployeeService(
             _unitOfWorkMock.Object,
             _passwordHasherMock.Object,
             _loggerMock.Object,
-            _emailSenderMock.Object
+            _emailSenderMock.Object,
+            _resourceLoaderMock.Object
         );
     }
 
@@ -393,7 +402,7 @@ public class EmployeeServiceTests
             .ReturnsAsync(new[] { userA, userB });
 
         // Act
-        var result = await _sut.ListEmployeesAsync(companyId, status: null, page: 1, limit: 20);
+        var result = await _sut.ListEmployeesAsync(companyId, status: null, search: null, page: 1, limit: 20);
 
         // Assert
         result.Total.Should().Be(1);
@@ -419,8 +428,8 @@ public class EmployeeServiceTests
             .ReturnsAsync(new[] { activeUser, inactiveUser });
 
         // Act
-        var activeResult = await _sut.ListEmployeesAsync(companyId, status: "Active", page: 1, limit: 20);
-        var inactiveResult = await _sut.ListEmployeesAsync(companyId, status: "inactive", page: 1, limit: 20);
+        var activeResult = await _sut.ListEmployeesAsync(companyId, status: "Active", search: null, page: 1, limit: 20);
+        var inactiveResult = await _sut.ListEmployeesAsync(companyId, status: "inactive", search: null, page: 1, limit: 20);
 
         // Assert
         activeResult.Data.Should().ContainSingle(e => e.RecordId == activeProfile.UserId && e.EmploymentStatus == "Active");
@@ -446,7 +455,7 @@ public class EmployeeServiceTests
         _userRepositoryMock.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync(users);
 
         // Act
-        var result = await _sut.ListEmployeesAsync(companyId, status: null, page: 2, limit: 2);
+        var result = await _sut.ListEmployeesAsync(companyId, status: null, search: null, page: 2, limit: 2);
 
         // Assert
         result.Total.Should().Be(5);
@@ -468,7 +477,7 @@ public class EmployeeServiceTests
         _departmentRepositoryMock.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new[] { department });
 
         // Act
-        var result = await _sut.ListEmployeesAsync(companyId, status: null, page: 1, limit: 20);
+        var result = await _sut.ListEmployeesAsync(companyId, status: null, search: null, page: 1, limit: 20);
 
         // Assert
         result.Data.Should().ContainSingle(e => e.Department == "Engineering");

@@ -41,6 +41,10 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<IGeneratedDocumentRepository, GeneratedDocumentRepository>();
         services.AddScoped<IAuditLogRepository, AuditLogRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
+        services.AddScoped<IResourceLoader, ResourceLoader>();
+
+        // In-memory cache used by rate-limiting middleware
+        services.AddMemoryCache();
 
 
         // Use file-based email sender for Development if SMTP is not configured
