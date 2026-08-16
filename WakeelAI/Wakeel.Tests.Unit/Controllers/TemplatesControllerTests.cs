@@ -9,6 +9,9 @@ using Wakeel.API.Controllers;
 using Wakeel.Application.DTOs.Templates;
 using Wakeel.Application.Interfaces;
 using Xunit;
+using System.Net.Http;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Wakeel.Tests.Unit.Controllers;
 
@@ -20,14 +23,28 @@ public class TemplatesControllerTests
     public TemplatesControllerTests()
     {
         _templateServiceMock = new Mock<ITemplateService>();
-        _controller = new TemplatesController(_templateServiceMock.Object);
-        
+
+        var httpClientFactoryMock = new Mock<IHttpClientFactory>();
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["AiNode:InternalApiKey"] = "test-internal-key"
+            })
+            .Build();
+
+        _controller = new TemplatesController(
+            _templateServiceMock.Object,
+            httpClientFactoryMock.Object,
+            configuration,
+            NullLogger<TemplatesController>.Instance);
+
         var httpContext = new DefaultHttpContext();
         _controller.ControllerContext = new ControllerContext
         {
             HttpContext = httpContext
         };
     }
+
 
     [Fact]
     public async Task GetTemplates_ReturnsOkResult_WithData()
