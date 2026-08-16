@@ -1,5 +1,7 @@
+using System.Threading;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Caching.Memory;
 using Wakeel.Application.DTOs.Auth;
 using Wakeel.Application.Enums;
 using Wakeel.Application.Interfaces;
@@ -8,9 +10,12 @@ namespace Wakeel.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class AuthController(IAuthService authService) : ControllerBase
+public class AuthController(IAuthService authService, IMemoryCache cache) : ControllerBase
 {
     private const string RefreshTokenCookieName = "refresh_token";
+    private static readonly TimeSpan ForgotPasswordWindow = TimeSpan.FromMinutes(15);
+    private const int ForgotPasswordMaxAttemptsPerEmail = 3;
+    private const int ForgotPasswordMaxAttemptsPerIp = 10;
 
     [HttpPost("register-company")]
     [ProducesResponseType(typeof(RegisterCompanyResponse), StatusCodes.Status201Created)]
@@ -99,6 +104,87 @@ public class AuthController(IAuthService authService) : ControllerBase
         return Ok(data);
     }
 
+    [HttpPost("forgot-password")]
+    [ProducesResponseType(typeof(ForgotPasswordResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status429TooManyRequests)]
+    public async Task<ActionResult<ForgotPasswordResponse>> ForgotPassword(
+        [FromBody] ForgotPasswordRequest request,
+        CancellationToken cancellationToken
+    )
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(BuildValidationErrorResponse());
+
+        if (IsForgotPasswordRateLimited(request.Email))
+        {
+            return StatusCode(StatusCodes.Status429TooManyRequests, new ApiErrorResponse
+            {
+                Error = "too_many_requests",
+                Message = "Too many password reset requests. Please try again later.",
+                Status = StatusCodes.Status429TooManyRequests
+            });
+        }
+
+        // Always succeeds from the caller's perspective — AuthService never reveals
+        // whether the email is registered, so this response never varies by outcome.
+        // The mobile client also calls this endpoint again to resend a code.
+        await authService.ForgotPasswordAsync(request, cancellationToken);
+
+        return Ok(new ForgotPasswordResponse
+        {
+            Message = "If an account exists for this email, a verification code has been sent."
+        });
+    }
+
+    [HttpPost("reset-password")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status429TooManyRequests)]
+    public async Task<IActionResult> ResetPassword(
+        [FromBody] ResetPasswordRequest request,
+        CancellationToken cancellationToken
+    )
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(BuildValidationErrorResponse());
+
+        var (isSuccess, errorMessage, status) = await authService.ResetPasswordAsync(request, cancellationToken);
+
+        if (!isSuccess)
+        {
+            return status switch
+            {
+                AuthResultStatus.OtpExpired => BadRequest(new ApiErrorResponse
+                {
+                    Error = "otp_expired",
+                    Message = "This verification code has expired. Please request a new one.",
+                    Status = StatusCodes.Status400BadRequest
+                }),
+                AuthResultStatus.InvalidOtp => BadRequest(new ApiErrorResponse
+                {
+                    Error = "invalid_otp",
+                    Message = "Invalid verification code.",
+                    Status = StatusCodes.Status400BadRequest
+                }),
+                AuthResultStatus.TooManyOtpAttempts => StatusCode(StatusCodes.Status429TooManyRequests, new ApiErrorResponse
+                {
+                    Error = "too_many_attempts",
+                    Message = "Too many incorrect attempts. Please request a new verification code.",
+                    Status = StatusCodes.Status429TooManyRequests
+                }),
+                _ => StatusCode(StatusCodes.Status500InternalServerError, new ApiErrorResponse
+                {
+                    Error = "internal_error",
+                    Message = errorMessage ?? "An unexpected error occurred.",
+                    Status = StatusCodes.Status500InternalServerError
+                })
+            };
+        }
+
+        return Ok();
+    }
+
     [HttpPost("refresh")]
     [ProducesResponseType(typeof(RefreshTokenResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
@@ -165,6 +251,38 @@ public class AuthController(IAuthService authService) : ControllerBase
             SameSite = SameSiteMode.Strict,
             Expires = DateTimeOffset.UtcNow.AddDays(7)
         });
+    }
+
+    /// <summary>
+    /// Enforces a per-email and per-IP request cap on top of the global rate-limiting
+    /// middleware, so repeated forgot-password requests can't be used to spam a
+    /// specific inbox or brute-force account enumeration from a single source.
+    /// </summary>
+    private bool IsForgotPasswordRateLimited(string email)
+    {
+        var normalizedEmail = email.Trim().ToLowerInvariant();
+        var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+        var emailAttempts = IncrementRateLimitCounter($"forgot_password:email:{normalizedEmail}");
+        var ipAttempts = IncrementRateLimitCounter($"forgot_password:ip:{ip}");
+
+        return emailAttempts > ForgotPasswordMaxAttemptsPerEmail || ipAttempts > ForgotPasswordMaxAttemptsPerIp;
+    }
+
+    private int IncrementRateLimitCounter(string cacheKey)
+    {
+        var counter = cache.GetOrCreate(cacheKey, entry =>
+        {
+            entry.AbsoluteExpirationRelativeToNow = ForgotPasswordWindow;
+            return new RateLimitCounter();
+        })!;
+
+        return Interlocked.Increment(ref counter.Count);
+    }
+
+    private sealed class RateLimitCounter
+    {
+        public int Count;
     }
 }
 

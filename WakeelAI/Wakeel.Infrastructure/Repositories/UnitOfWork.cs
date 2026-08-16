@@ -24,6 +24,7 @@ public class UnitOfWork : IUnitOfWork
     private IDocumentTemplateRepository? _documentTemplates;
     private IGeneratedDocumentRepository? _generatedDocuments;
     private IAuditLogRepository? _auditLogs;
+    private IPasswordResetOtpRepository? _passwordResetOtps;
     private bool _disposed;
 
     public UnitOfWork(ApplicationDbContext dbContext)
@@ -63,6 +64,9 @@ public class UnitOfWork : IUnitOfWork
     public IDocumentTemplateRepository DocumentTemplates => _documentTemplates ??= new DocumentTemplateRepository(_dbContext);
     public IGeneratedDocumentRepository GeneratedDocuments => _generatedDocuments ??= new GeneratedDocumentRepository(_dbContext);
     public IAuditLogRepository AuditLogs => _auditLogs ??= new AuditLogRepository(_dbContext);
+
+    /// <inheritdoc />
+    public IPasswordResetOtpRepository PasswordResetOtps => _passwordResetOtps ??= new PasswordResetOtpRepository(_dbContext);
 
     /// <inheritdoc />
     public async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
