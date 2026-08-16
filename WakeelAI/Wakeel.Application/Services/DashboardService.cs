@@ -35,15 +35,22 @@ public class DashboardService : IDashboardService
         var pendingLeaveRequests = await _unitOfWork.LeaveRequests.FindAsync(
             lr => lr.CompanyId == companyId && lr.Status == "Pending", cancellationToken);
 
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var activeLeaves = await _unitOfWork.LeaveRequests.FindAsync(
+            lr => lr.CompanyId == companyId && lr.Status == "Approved" && lr.StartDate <= today && lr.EndDate >= today, 
+            cancellationToken);
+        var employeesOnLeaveToday = activeLeaves.Select(lr => lr.EmployeeId).Distinct().Count();
+
+        var generatedDocumentsCount = await _unitOfWork.GeneratedDocuments.CountAsync(
+            d => d.CompanyId == companyId, cancellationToken);
+
         return new DashboardSummaryResponse
         {
             EmployeeCount = companyProfiles.Count,
             ActiveEmployees = activeEmployees,
             PendingLeaveRequests = pendingLeaveRequests.Count,
-            // No CompanyHandbook / GeneratedDocument entities exist yet.
-            // These stay at placeholder values until those features are built.
-            HandbookUploaded = false,
-            GeneratedDocumentsCount = 0
+            EmployeesOnLeaveToday = employeesOnLeaveToday,
+            GeneratedDocumentsCount = generatedDocumentsCount
         };
     }
 }
