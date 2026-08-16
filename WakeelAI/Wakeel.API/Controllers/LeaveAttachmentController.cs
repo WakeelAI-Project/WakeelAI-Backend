@@ -11,6 +11,7 @@ using Wakeel.Application.Interfaces;
 using Wakeel.Domain.Entities;
 using Wakeel.Infrastructure.Persistence;
 using System.Security.Claims;
+using Microsoft.EntityFrameworkCore;
 
 namespace Wakeel.API.Controllers;
 
@@ -51,9 +52,10 @@ public class LeaveAttachmentController : ControllerBase
     /// <param name="cancellationToken">A token to monitor for cancellation.</param>
     /// <returns>201 Created with the attachment_url.</returns>
     [HttpPost("attachments")]
-    [Authorize(Roles = "Employee")]
+    [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> UploadAttachment(
         IFormFile? file,
         CancellationToken cancellationToken)
@@ -86,8 +88,39 @@ public class LeaveAttachmentController : ControllerBase
         using var stream = file.OpenReadStream();
         var attachmentUrl = await _fileService.SaveFileAsync(stream, file.FileName, "leave-requests", cancellationToken);
 
-        var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("user_id")!);
-        var companyId = Guid.Parse(User.FindFirstValue("company_id")!);
+        Guid userId;
+        Guid companyId;
+
+        // If the request is authenticated via JWT, prefer claims. Otherwise accept explicit headers
+        // from the mobile app: X-User-Id and X-Company-Id (public mode).
+        if (User?.Identity != null && User.Identity.IsAuthenticated)
+        {
+            var role = User.FindFirst(ClaimTypes.Role)?.Value ?? User.FindFirst("role")?.Value;
+            if (!string.Equals(role, "Employee", StringComparison.OrdinalIgnoreCase))
+            {
+                return Forbid();
+            }
+
+            var userClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? User.FindFirst("user_id")?.Value;
+            var companyClaim = User.FindFirst("company_id")?.Value;
+            if (!Guid.TryParse(userClaim, out userId) || !Guid.TryParse(companyClaim, out companyId))
+            {
+                return BadRequest(new ApiErrorResponse { Error = "validation_error", Message = "Invalid user or company claims.", Status = 400 });
+            }
+        }
+        else
+        {
+            // Public upload mode - mobile app must supply X-User-Id and X-Company-Id headers.
+            if (!Request.Headers.TryGetValue("X-User-Id", out var headerUser) || !Request.Headers.TryGetValue("X-Company-Id", out var headerCompany))
+            {
+                return BadRequest(new ApiErrorResponse { Error = "missing_identity_headers", Message = "X-User-Id and X-Company-Id headers are required for anonymous uploads.", Status = 400 });
+            }
+
+            if (!Guid.TryParse(headerUser.ToString(), out userId) || !Guid.TryParse(headerCompany.ToString(), out companyId))
+            {
+                return BadRequest(new ApiErrorResponse { Error = "validation_error", Message = "Invalid X-User-Id or X-Company-Id format.", Status = 400 });
+            }
+        }
 
         var attachmentRecord = new LeaveAttachment
         {
@@ -97,6 +130,13 @@ public class LeaveAttachmentController : ControllerBase
             Url = attachmentUrl,
             CreatedAt = DateTime.UtcNow
         };
+
+        // Validate the referenced employee exists and belongs to the given company.
+        var employeeExists = await _dbContext.Users.AnyAsync(u => u.Id == userId && u.CompanyId == companyId, cancellationToken);
+        if (!employeeExists)
+        {
+            return NotFound(new ApiErrorResponse { Error = "employee_not_found", Message = "Employee not found.", Status = 404 });
+        }
 
         _dbContext.LeaveAttachments.Add(attachmentRecord);
         await _dbContext.SaveChangesAsync(cancellationToken);
