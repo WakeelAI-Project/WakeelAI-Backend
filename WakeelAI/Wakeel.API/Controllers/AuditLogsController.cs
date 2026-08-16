@@ -8,7 +8,7 @@ namespace Wakeel.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize(Roles = "Company_Admin")]
+[Authorize(Roles = "Company_Owner")]
 public class AuditLogsController : ControllerBase
 {
     private readonly IAuditLogService _auditLogService;
