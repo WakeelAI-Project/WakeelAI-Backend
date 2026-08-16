@@ -172,11 +172,9 @@ public class DocumentService : IDocumentService
             await _emailSender.SendEmailAsync(emailTo, $"Document: {document.Title}", htmlBody);
         }
         catch (Exception ex)
-{
-    throw new InvalidOperationException(
-        $"email_send_failed: {ex.Message}",
-        ex);
-}
+        {
+            throw new InvalidOperationException("email_send_failed");
+        }
 
         document.EmailSentTo = emailTo;
         document.EmailSentAt = DateTime.UtcNow;
