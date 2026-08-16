@@ -171,10 +171,12 @@ public class DocumentService : IDocumentService
             var htmlBody = $"<p>Hello,</p><p>Please find your document '{document.Title}' at the following link:</p><p><a href=\"{document.PdfUrl}\">Download PDF</a></p>";
             await _emailSender.SendEmailAsync(emailTo, $"Document: {document.Title}", htmlBody);
         }
-        catch (Exception)
-        {
-            throw new InvalidOperationException("email_send_failed");
-        }
+        catch (Exception ex)
+{
+    throw new InvalidOperationException(
+        $"email_send_failed: {ex.Message}",
+        ex);
+}
 
         document.EmailSentTo = emailTo;
         document.EmailSentAt = DateTime.UtcNow;
