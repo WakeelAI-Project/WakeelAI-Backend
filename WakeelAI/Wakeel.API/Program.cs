@@ -109,6 +109,7 @@ public partial class Program
         // Rate limiting - enforce per-user limits for chat/document generation and global default.
         // Requires IMemoryCache to be registered by AddInfrastructureServices (or AddMemoryCache elsewhere).
         app.UseMiddleware<RateLimitingMiddleware>();
+        app.UseMiddleware<ForcePasswordChangeMiddleware>();
         app.UseAuthorization();
 
 

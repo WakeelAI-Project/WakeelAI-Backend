@@ -56,9 +56,11 @@ public class GlobalErrorHandlingMiddleware
 
     private static (int status, string error, string message) MapException(Exception ex)
     {
-        // Domain-style InvalidOperationException carrying a machine-readable code in Message
         if (ex is InvalidOperationException ioe)
         {
+            if (ioe.Message.StartsWith("email_send_failed", StringComparison.Ordinal))
+                return (StatusCodes.Status502BadGateway, "email_send_failed", "Failed to send the email. Please try again later.");
+
             return ioe.Message switch
             {
                 "validation_error" => (StatusCodes.Status400BadRequest, "validation_error", "Validation failed."),
@@ -68,13 +70,19 @@ public class GlobalErrorHandlingMiddleware
                 "leave_request_not_found" => (StatusCodes.Status404NotFound, "leave_request_not_found", "Leave request not found."),
                 "document_not_found" => (StatusCodes.Status404NotFound, "document_not_found", "Document not found."),
                 "template_not_found" => (StatusCodes.Status404NotFound, "template_not_found", "Template not found."),
+                "company_not_found" => (StatusCodes.Status404NotFound, "company_not_found", "Company not found."),
                 "insufficient_leave_balance" => (StatusCodes.Status422UnprocessableEntity, "insufficient_leave_balance", "Insufficient leave balance."),
                 "attachment_required" => (StatusCodes.Status422UnprocessableEntity, "attachment_required", "Attachment is required."),
                 "not_a_draft" => (StatusCodes.Status409Conflict, "not_a_draft", "Operation not allowed in current state."),
                 "not_pending" => (StatusCodes.Status409Conflict, "not_pending", "Operation not allowed in current state."),
                 "not_finalized" => (StatusCodes.Status409Conflict, "not_finalized", "Operation not allowed in current state."),
                 "employee_not_assigned" => (StatusCodes.Status400BadRequest, "employee_not_assigned", "Employee is not assigned."),
-                _ => (StatusCodes.Status500InternalServerError, "internal_error", ex.Message ?? "An unexpected error occurred.")
+                "overlapping_leave_request" => (StatusCodes.Status409Conflict, "overlapping_leave_request", "An overlapping leave request already exists."),
+                "document_has_no_content" => (StatusCodes.Status422UnprocessableEntity, "document_has_no_content", "Document has no content."),
+                "hire_date_in_future" => (StatusCodes.Status400BadRequest, "hire_date_in_future", "Hire date cannot be in the future."),
+                "employee_no_email" => (StatusCodes.Status400BadRequest, "employee_no_email", "Employee has no email address."),
+                "no_tenant" => (StatusCodes.Status400BadRequest, "no_tenant", "Tenant context is missing."),
+                _ => (StatusCodes.Status500InternalServerError, "internal_error", "An unexpected error occurred.")
             };
         }
 

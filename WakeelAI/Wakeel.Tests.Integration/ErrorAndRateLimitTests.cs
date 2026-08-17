@@ -183,7 +183,12 @@ public class ErrorAndRateLimitTests : IClassFixture<CustomWebApplicationFactory>
         HttpResponseMessage lastResponse = null!;
         for (int i = 0; i < 21; i++)
         {
-            var resp = await client.PostAsJsonAsync("/api/ai/chat", new { message = "hi", language = "en" });
+            var req = new HttpRequestMessage(HttpMethod.Post, "/api/ai/chat")
+            {
+                Content = JsonContent.Create(new { message = "hi", language = "en" })
+            };
+            req.Headers.Add("X-Test-RateLimit", "true");
+            var resp = await client.SendAsync(req);
             lastResponse = resp;
             if (resp.StatusCode == HttpStatusCode.TooManyRequests) break;
         }

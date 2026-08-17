@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using System.Threading;
+using Microsoft.Extensions.Hosting;
 
 namespace Wakeel.API.Middleware;
 
@@ -28,18 +29,33 @@ public class RateLimitingMiddleware
     private readonly RequestDelegate _next;
     private readonly IMemoryCache _cache;
     private readonly ILogger<RateLimitingMiddleware> _logger;
+    private readonly IHostEnvironment _environment;
 
-    public RateLimitingMiddleware(RequestDelegate next, IMemoryCache cache, ILogger<RateLimitingMiddleware> logger)
+    public RateLimitingMiddleware(
+        RequestDelegate next,
+        IMemoryCache cache,
+        ILogger<RateLimitingMiddleware> logger,
+        IHostEnvironment environment)
     {
         _next = next;
         _cache = cache;
         _logger = logger;
+        _environment = environment;
     }
 
     public async Task Invoke(HttpContext context)
     {
         try
         {
+            // Rate limiting is bypassed ONLY in the "Testing" environment, unless a test
+            // explicitly opts in via the X-Test-RateLimit header to exercise 429 behavior.
+            if (_environment.IsEnvironment("Testing") &&
+                !context.Request.Headers.ContainsKey("X-Test-RateLimit"))
+            {
+                await _next(context);
+                return;
+            }
+
             var path = context.Request.Path.Value ?? string.Empty;
             var method = context.Request.Method ?? "";
 
@@ -88,7 +104,7 @@ public class RateLimitingMiddleware
         }
     }
 
-    private static string GetIdentity(HttpContext context)
+    private static string? GetIdentity(HttpContext context)
     {
         // prefer JWT company/user id claim "user_id" or ClaimTypes.NameIdentifier
         var user = context.User;
@@ -97,10 +113,6 @@ public class RateLimitingMiddleware
             var userId = user.FindFirst("user_id")?.Value ?? user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
             if (!string.IsNullOrEmpty(userId)) return userId;
         }
-
-        // Fallback to header X-User-Id used by internal services
-        if (context.Request.Headers.TryGetValue("X-User-Id", out var headerUserId))
-            return headerUserId.ToString();
 
         return null;
     }
@@ -113,6 +125,10 @@ public class RateLimitingMiddleware
             return "chat_ask";
         if (p == "/api/documents/generate" && string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase))
             return "documents_generate";
+        if (p == "/api/auth/login" && string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase))
+            return "auth_login";
+        if (p == "/api/auth/forgot-password" && string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase))
+            return "auth_forgot";
         return "default";
     }
 
@@ -120,6 +136,8 @@ public class RateLimitingMiddleware
     {
         "chat_ask" => 20,
         "documents_generate" => 10,
+        "auth_login" => 10,
+        "auth_forgot" => 5,
         _ => 100
     };
 }

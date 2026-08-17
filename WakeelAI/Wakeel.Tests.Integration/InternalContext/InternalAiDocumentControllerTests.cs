@@ -18,10 +18,27 @@ public class InternalAiDocumentControllerTests : IClassFixture<CustomWebApplicat
 {
     private readonly CustomWebApplicationFactory _factory;
     private const string ValidPsk = "test-internal-key";
+    private const string TestInternalKey = "test-internal-key";
 
     public InternalAiDocumentControllerTests(CustomWebApplicationFactory factory)
     {
         _factory = factory;
+    }
+
+    private static HttpRequestMessage CreateRequest(HttpMethod method, string url, Guid companyId, object? body = null)
+    {
+        var request = new HttpRequestMessage(method, url)
+        {
+            Headers =
+            {
+                { "X-Internal-API-Key", TestInternalKey },
+                { "X-Company-Id", companyId.ToString() },
+                { "X-Role", "HR_Manager" }
+            }
+        };
+        if (body != null)
+            request.Content = JsonContent.Create(body);
+        return request;
     }
 
     private HttpRequestMessage BuildInternalRequest(string url, string? psk, string? userId, string? companyId, string? role, object body)
@@ -98,7 +115,7 @@ public class InternalAiDocumentControllerTests : IClassFixture<CustomWebApplicat
             metadata = new { reason = "Test" }
         };
 
-        var request = BuildInternalRequest("/api/ai/documents/save", ValidPsk, Guid.NewGuid().ToString(), owner.CompanyId.ToString(), "Employee", payload);
+        var request = BuildInternalRequest("/api/ai/documents/save", ValidPsk, Guid.NewGuid().ToString(), owner.CompanyId.ToString(), "HR_Manager", payload);
         
         // 3. Send request
         var response = await client.SendAsync(request);

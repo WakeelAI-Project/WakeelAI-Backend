@@ -32,44 +32,19 @@ public class DocumentService : IDocumentService
     public async Task<(IEnumerable<DocumentSummary> Data, int Total)> GetDocumentsAsync(
         int page, int limit, string? type, string? status, Guid? employeeId, string? sort, string? order)
     {
-        var allDocs = await _unitOfWork.GeneratedDocuments.GetAllAsync();
-        var query = allDocs.AsQueryable();
+        var (items, total) = await _unitOfWork.GeneratedDocuments.GetPagedAsync(
+            page, limit, type, status, employeeId, sort, order);
 
-        if (!string.IsNullOrEmpty(type))
-            query = query.Where(d => d.DocumentType == type);
-        
-        if (!string.IsNullOrEmpty(status))
-            query = query.Where(d => d.Status == status);
-
-        if (employeeId.HasValue)
-            query = query.Where(d => d.EmployeeId == employeeId.Value);
-
-        // Sorting
-        var isAsc = string.Equals(order, "asc", StringComparison.OrdinalIgnoreCase);
-        query = sort?.ToLower() switch
+        var documents = items.Select(d => new DocumentSummary
         {
-            "created_at" => isAsc ? query.OrderBy(d => d.CreatedAt) : query.OrderByDescending(d => d.CreatedAt),
-            "updated_at" => isAsc ? query.OrderBy(d => d.UpdatedAt) : query.OrderByDescending(d => d.UpdatedAt),
-            "title" => isAsc ? query.OrderBy(d => d.Title) : query.OrderByDescending(d => d.Title),
-            _ => query.OrderByDescending(d => d.CreatedAt)
-        };
-
-        var total = query.Count();
-
-        var documents = query
-            .Skip((page - 1) * limit)
-            .Take(limit)
-            .Select(d => new DocumentSummary
-            {
-                Id = d.Id,
-                DocumentType = d.DocumentType,
-                Title = d.Title,
-                Status = d.Status,
-                EmployeeId = d.EmployeeId,
-                CreatedAt = d.CreatedAt,
-                UpdatedAt = d.UpdatedAt
-            })
-            .ToList();
+            Id = d.Id,
+            DocumentType = d.DocumentType,
+            Title = d.Title,
+            Status = d.Status,
+            EmployeeId = d.EmployeeId,
+            CreatedAt = d.CreatedAt,
+            UpdatedAt = d.UpdatedAt
+        }).ToList();
 
         return (documents, total);
     }
