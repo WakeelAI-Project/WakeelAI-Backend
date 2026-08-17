@@ -16,17 +16,20 @@ public class DocumentService : IDocumentService
     private readonly ICurrentTenantService _currentTenantService;
     private readonly IPdfGeneratorService _pdfGeneratorService;
     private readonly IEmailSender _emailSender;
+    private readonly IPublicUrlBuilder _publicUrlBuilder;
 
     public DocumentService(
         IUnitOfWork unitOfWork,
         ICurrentTenantService currentTenantService,
         IPdfGeneratorService pdfGeneratorService,
-        IEmailSender emailSender)
+        IEmailSender emailSender,
+        IPublicUrlBuilder publicUrlBuilder)
     {
         _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
         _currentTenantService = currentTenantService ?? throw new ArgumentNullException(nameof(currentTenantService));
         _pdfGeneratorService = pdfGeneratorService ?? throw new ArgumentNullException(nameof(pdfGeneratorService));
         _emailSender = emailSender ?? throw new ArgumentNullException(nameof(emailSender));
+        _publicUrlBuilder = publicUrlBuilder ?? throw new ArgumentNullException(nameof(publicUrlBuilder));
     }
 
     public async Task<(IEnumerable<DocumentSummary> Data, int Total)> GetDocumentsAsync(
@@ -143,7 +146,8 @@ public class DocumentService : IDocumentService
 
         try
         {
-            var htmlBody = $"<p>Hello,</p><p>Please find your document '{document.Title}' at the following link:</p><p><a href=\"{document.PdfUrl}\">Download PDF</a></p>";
+            var pdfAbsoluteUrl = _publicUrlBuilder.ToAbsoluteUrl(document.PdfUrl);
+            var htmlBody = $"<p>Hello,</p><p>Please find your document '{document.Title}' at the following link:</p><p><a href=\"{pdfAbsoluteUrl}\">Download PDF</a></p>";
             await _emailSender.SendEmailAsync(emailTo, $"Document: {document.Title}", htmlBody);
         }
         catch (Exception ex)
