@@ -173,7 +173,9 @@ public class DocumentService : IDocumentService
         }
         catch (Exception ex)
         {
-            throw new InvalidOperationException("email_send_failed");
+            throw new InvalidOperationException(
+                $"email_send_failed: {ex.Message}",
+                ex);
         }
 
         document.EmailSentTo = emailTo;
