@@ -18,28 +18,12 @@ public class InternalAiDocumentControllerTests : IClassFixture<CustomWebApplicat
 {
     private readonly CustomWebApplicationFactory _factory;
     private const string ValidPsk = "test-internal-key";
-    private const string TestInternalKey = "test-internal-key";
 
     public InternalAiDocumentControllerTests(CustomWebApplicationFactory factory)
     {
         _factory = factory;
     }
 
-    private static HttpRequestMessage CreateRequest(HttpMethod method, string url, Guid companyId, object? body = null)
-    {
-        var request = new HttpRequestMessage(method, url)
-        {
-            Headers =
-            {
-                { "X-Internal-API-Key", TestInternalKey },
-                { "X-Company-Id", companyId.ToString() },
-                { "X-Role", "HR_Manager" }
-            }
-        };
-        if (body != null)
-            request.Content = JsonContent.Create(body);
-        return request;
-    }
 
     private HttpRequestMessage BuildInternalRequest(string url, string? psk, string? userId, string? companyId, string? role, object body)
     {
