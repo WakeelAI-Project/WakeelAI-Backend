@@ -152,35 +152,27 @@ public class AuthController(IAuthService authService, IMemoryCache cache) : Cont
         var (isSuccess, errorMessage, status) = await authService.ResetPasswordAsync(request, cancellationToken);
 
         if (!isSuccess)
-        {
-            return status switch
-            {
-                AuthResultStatus.OtpExpired => BadRequest(new ApiErrorResponse
-                {
-                    Error = "otp_expired",
-                    Message = "This verification code has expired. Please request a new one.",
-                    Status = StatusCodes.Status400BadRequest
-                }),
-                AuthResultStatus.InvalidOtp => BadRequest(new ApiErrorResponse
-                {
-                    Error = "invalid_otp",
-                    Message = "Invalid verification code.",
-                    Status = StatusCodes.Status400BadRequest
-                }),
-                AuthResultStatus.TooManyOtpAttempts => StatusCode(StatusCodes.Status429TooManyRequests, new ApiErrorResponse
-                {
-                    Error = "too_many_attempts",
-                    Message = "Too many incorrect attempts. Please request a new verification code.",
-                    Status = StatusCodes.Status429TooManyRequests
-                }),
-                _ => StatusCode(StatusCodes.Status500InternalServerError, new ApiErrorResponse
-                {
-                    Error = "internal_error",
-                    Message = errorMessage ?? "An unexpected error occurred.",
-                    Status = StatusCodes.Status500InternalServerError
-                })
-            };
-        }
+            return MapOtpErrorResponse(status, errorMessage);
+
+        return Ok();
+    }
+
+    [HttpPost("verify-otp")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status429TooManyRequests)]
+    public async Task<IActionResult> VerifyOtp(
+        [FromBody] VerifyOtpRequest request,
+        CancellationToken cancellationToken
+    )
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(BuildValidationErrorResponse());
+
+        var (isSuccess, errorMessage, status) = await authService.VerifyOtpAsync(request, cancellationToken);
+
+        if (!isSuccess)
+            return MapOtpErrorResponse(status, errorMessage);
 
         return Ok();
     }
@@ -226,6 +218,38 @@ public class AuthController(IAuthService authService, IMemoryCache cache) : Cont
 
         return NoContent();
     }
+
+    /// <summary>
+    /// Maps a failed OTP-verification outcome (shared by reset-password and verify-otp)
+    /// to its HTTP response, so both endpoints stay consistent.
+    /// </summary>
+    private IActionResult MapOtpErrorResponse(AuthResultStatus status, string? errorMessage) => status switch
+    {
+        AuthResultStatus.OtpExpired => BadRequest(new ApiErrorResponse
+        {
+            Error = "otp_expired",
+            Message = "This verification code has expired. Please request a new one.",
+            Status = StatusCodes.Status400BadRequest
+        }),
+        AuthResultStatus.InvalidOtp => BadRequest(new ApiErrorResponse
+        {
+            Error = "invalid_otp",
+            Message = "Invalid verification code.",
+            Status = StatusCodes.Status400BadRequest
+        }),
+        AuthResultStatus.TooManyOtpAttempts => StatusCode(StatusCodes.Status429TooManyRequests, new ApiErrorResponse
+        {
+            Error = "too_many_attempts",
+            Message = "Too many incorrect attempts. Please request a new verification code.",
+            Status = StatusCodes.Status429TooManyRequests
+        }),
+        _ => StatusCode(StatusCodes.Status500InternalServerError, new ApiErrorResponse
+        {
+            Error = "internal_error",
+            Message = errorMessage ?? "An unexpected error occurred.",
+            Status = StatusCodes.Status500InternalServerError
+        })
+    };
 
     private ApiErrorResponse BuildValidationErrorResponse()
     {

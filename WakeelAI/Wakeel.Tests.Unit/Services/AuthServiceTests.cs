@@ -803,6 +803,175 @@ public class AuthServiceTests
     }
 
     // ------------------------------------------------------------
+    // VerifyOtpAsync
+    // ------------------------------------------------------------
+
+    [Fact]
+    public async Task VerifyOtpAsync_GivenUnknownEmail_ShouldReturnInvalidOtp()
+    {
+        // Arrange
+        var request = new VerifyOtpRequest { Email = "unknown@test.com", Otp = "123456" };
+
+        _userRepositoryMock
+            .Setup(r => r.GetByEmailAsync(request.Email, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((User?)null);
+
+        // Act
+        var result = await _sut.VerifyOtpAsync(request);
+
+        // Assert
+        result.IsSuccess.Should().BeFalse();
+        result.Status.Should().Be(AuthResultStatus.InvalidOtp);
+    }
+
+    [Fact]
+    public async Task VerifyOtpAsync_GivenNoOtpRecord_ShouldReturnInvalidOtp()
+    {
+        // Arrange
+        var user = CreateTestUser();
+        var request = new VerifyOtpRequest { Email = user.Email, Otp = "123456" };
+
+        _userRepositoryMock
+            .Setup(r => r.GetByEmailAsync(request.Email, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(user);
+
+        _passwordResetOtpRepositoryMock
+            .Setup(r => r.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<PasswordResetOtp, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PasswordResetOtp?)null);
+
+        // Act
+        var result = await _sut.VerifyOtpAsync(request);
+
+        // Assert
+        result.IsSuccess.Should().BeFalse();
+        result.Status.Should().Be(AuthResultStatus.InvalidOtp);
+    }
+
+    [Fact]
+    public async Task VerifyOtpAsync_GivenExpiredOtp_ShouldReturnOtpExpiredAndDeleteRecord()
+    {
+        // Arrange
+        var user = CreateTestUser();
+        var request = new VerifyOtpRequest { Email = user.Email, Otp = "123456" };
+        var record = new PasswordResetOtp { Id = Guid.NewGuid(), UserId = user.Id, ExpiresAt = DateTime.UtcNow.AddMinutes(-1) };
+
+        _userRepositoryMock
+            .Setup(r => r.GetByEmailAsync(request.Email, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(user);
+
+        _passwordResetOtpRepositoryMock
+            .Setup(r => r.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<PasswordResetOtp, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(record);
+
+        // Act
+        var result = await _sut.VerifyOtpAsync(request);
+
+        // Assert
+        result.IsSuccess.Should().BeFalse();
+        result.Status.Should().Be(AuthResultStatus.OtpExpired);
+        _passwordResetOtpRepositoryMock.Verify(r => r.Remove(record), Times.Once);
+    }
+
+    [Fact]
+    public async Task VerifyOtpAsync_GivenWrongCode_ShouldIncrementFailedAttemptsAndReturnInvalidOtp()
+    {
+        // Arrange
+        var user = CreateTestUser();
+        var request = new VerifyOtpRequest { Email = user.Email, Otp = "000000" };
+        var record = new PasswordResetOtp { Id = Guid.NewGuid(), UserId = user.Id, OtpHash = "correct_hash", ExpiresAt = DateTime.UtcNow.AddMinutes(5), FailedAttempts = 1 };
+
+        _userRepositoryMock
+            .Setup(r => r.GetByEmailAsync(request.Email, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(user);
+
+        _passwordResetOtpRepositoryMock
+            .Setup(r => r.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<PasswordResetOtp, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(record);
+
+        _passwordHasherMock
+            .Setup(h => h.VerifyPassword(request.Otp, record.OtpHash))
+            .Returns(false);
+
+        // Act
+        var result = await _sut.VerifyOtpAsync(request);
+
+        // Assert
+        result.IsSuccess.Should().BeFalse();
+        result.Status.Should().Be(AuthResultStatus.InvalidOtp);
+        record.FailedAttempts.Should().Be(2);
+        _passwordResetOtpRepositoryMock.Verify(r => r.Update(record), Times.Once);
+        _passwordResetOtpRepositoryMock.Verify(r => r.Remove(It.IsAny<PasswordResetOtp>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task VerifyOtpAsync_GivenTooManyFailedAttempts_ShouldLockOtpAndReturnTooManyAttempts()
+    {
+        // Arrange — one wrong attempt away from the 5-attempt threshold
+        var user = CreateTestUser();
+        var request = new VerifyOtpRequest { Email = user.Email, Otp = "000000" };
+        var record = new PasswordResetOtp { Id = Guid.NewGuid(), UserId = user.Id, OtpHash = "correct_hash", ExpiresAt = DateTime.UtcNow.AddMinutes(5), FailedAttempts = 4 };
+
+        _userRepositoryMock
+            .Setup(r => r.GetByEmailAsync(request.Email, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(user);
+
+        _passwordResetOtpRepositoryMock
+            .Setup(r => r.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<PasswordResetOtp, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(record);
+
+        _passwordHasherMock
+            .Setup(h => h.VerifyPassword(request.Otp, record.OtpHash))
+            .Returns(false);
+
+        // Act
+        var result = await _sut.VerifyOtpAsync(request);
+
+        // Assert
+        result.IsSuccess.Should().BeFalse();
+        result.Status.Should().Be(AuthResultStatus.TooManyOtpAttempts);
+        _passwordResetOtpRepositoryMock.Verify(r => r.Remove(record), Times.Once);
+    }
+
+    [Fact]
+    public async Task VerifyOtpAsync_GivenCorrectCode_ShouldReturnSuccessWithoutConsumingRecordOrTouchingPassword()
+    {
+        // Arrange — this is the key behavioral difference from ResetPasswordAsync: a correct
+        // code here must leave the OTP record and the user's password completely untouched,
+        // so the client's follow-up reset-password call can still consume it for real.
+        var user = CreateTestUser();
+        var originalPasswordHash = user.PasswordHash;
+        var request = new VerifyOtpRequest { Email = user.Email, Otp = "123456" };
+        var record = new PasswordResetOtp { Id = Guid.NewGuid(), UserId = user.Id, OtpHash = "correct_hash", ExpiresAt = DateTime.UtcNow.AddMinutes(5) };
+
+        _userRepositoryMock
+            .Setup(r => r.GetByEmailAsync(request.Email, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(user);
+
+        _passwordResetOtpRepositoryMock
+            .Setup(r => r.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<PasswordResetOtp, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(record);
+
+        _passwordHasherMock
+            .Setup(h => h.VerifyPassword(request.Otp, record.OtpHash))
+            .Returns(true);
+
+        // Act
+        var result = await _sut.VerifyOtpAsync(request);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        user.PasswordHash.Should().Be(originalPasswordHash);
+        _userRepositoryMock.Verify(r => r.Update(It.IsAny<User>()), Times.Never);
+        _passwordResetOtpRepositoryMock.Verify(r => r.Remove(It.IsAny<PasswordResetOtp>()), Times.Never);
+        _passwordResetOtpRepositoryMock.Verify(r => r.Update(It.IsAny<PasswordResetOtp>()), Times.Never);
+        _unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+        _refreshTokenRepositoryMock.Verify(
+            r => r.FindAsync(It.IsAny<System.Linq.Expressions.Expression<Func<RefreshToken, bool>>>(), It.IsAny<CancellationToken>()),
+            Times.Never
+        );
+    }
+
+    // ------------------------------------------------------------
     // LogoutAsync
     // ------------------------------------------------------------
 

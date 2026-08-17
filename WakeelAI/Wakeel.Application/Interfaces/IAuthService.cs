@@ -92,4 +92,26 @@ public interface IAuthService
         ResetPasswordRequest request,
         CancellationToken cancellationToken = default
     );
+
+    /// <summary>
+    /// Checks whether an OTP previously issued via <see cref="ForgotPasswordAsync"/> is
+    /// currently valid for the given email, without consuming it or touching the user's
+    /// password. Shares its lookup/expiry/attempt-lockout logic with
+    /// <see cref="ResetPasswordAsync"/>, so the two can never drift out of sync — a code
+    /// that passes verification here is guaranteed to still work when submitted to
+    /// ResetPasswordAsync afterward (unless it expires or is consumed by a request in
+    /// between).
+    /// </summary>
+    /// <param name="request">The email and submitted OTP to check.</param>
+    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <returns>
+    /// A tuple containing:
+    /// - IsSuccess: Whether the code is currently valid.
+    /// - ErrorMessage: A machine-readable error code if unsuccessful (null if successful).
+    /// - Status: Success, InvalidOtp, OtpExpired, TooManyOtpAttempts, or Failure.
+    /// </returns>
+    Task<(bool IsSuccess, string? ErrorMessage, AuthResultStatus Status)> VerifyOtpAsync(
+        VerifyOtpRequest request,
+        CancellationToken cancellationToken = default
+    );
 }

@@ -371,43 +371,13 @@ public class AuthService : IAuthService
 
         try
         {
-            var user = await _unitOfWork.Users.GetByEmailAsync(request.Email, cancellationToken);
-            if (user is null)
-                return (false, "invalid_otp", AuthResultStatus.InvalidOtp);
+            var (isValid, user, record, status) = await VerifyOtpRecordAsync(request.Email, request.Otp, cancellationToken);
+            if (!isValid)
+                return (false, MapOtpErrorCode(status), status);
 
-            var record = await _unitOfWork.PasswordResetOtps.FirstOrDefaultAsync(
-                o => o.UserId == user.Id,
-                cancellationToken);
-            if (record is null)
-                return (false, "invalid_otp", AuthResultStatus.InvalidOtp);
-
-            if (record.ExpiresAt < DateTime.UtcNow)
-            {
-                _unitOfWork.PasswordResetOtps.Remove(record);
-                await _unitOfWork.SaveChangesAsync(cancellationToken);
-                return (false, "otp_expired", AuthResultStatus.OtpExpired);
-            }
-
-            if (!_passwordHasher.VerifyPassword(request.Otp, record.OtpHash))
-            {
-                record.FailedAttempts++;
-
-                if (record.FailedAttempts >= MaxOtpFailedAttempts)
-                {
-                    _unitOfWork.PasswordResetOtps.Remove(record);
-                    await _unitOfWork.SaveChangesAsync(cancellationToken);
-                    _logger.LogWarning("Forgot-password OTP locked after too many failed attempts. UserId: {UserId}", user.Id);
-                    return (false, "too_many_attempts", AuthResultStatus.TooManyOtpAttempts);
-                }
-
-                _unitOfWork.PasswordResetOtps.Update(record);
-                await _unitOfWork.SaveChangesAsync(cancellationToken);
-                return (false, "invalid_otp", AuthResultStatus.InvalidOtp);
-            }
-
-            user.PasswordHash = _passwordHasher.HashPassword(request.NewPassword);
+            user!.PasswordHash = _passwordHasher.HashPassword(request.NewPassword);
             _unitOfWork.Users.Update(user);
-            _unitOfWork.PasswordResetOtps.Remove(record);
+            _unitOfWork.PasswordResetOtps.Remove(record!);
 
             var activeTokens = await _unitOfWork.RefreshTokens.FindAsync(
                 rt => rt.UserId == user.Id && !rt.IsRevoked,
@@ -429,6 +399,87 @@ public class AuthService : IAuthService
             return (false, "An unexpected error occurred while resetting the password.", AuthResultStatus.Failure);
         }
     }
+
+    /// <inheritdoc />
+    public async Task<(bool IsSuccess, string? ErrorMessage, AuthResultStatus Status)> VerifyOtpAsync(
+        VerifyOtpRequest request,
+        CancellationToken cancellationToken = default
+    )
+    {
+        if (request is null)
+            throw new ArgumentNullException(nameof(request));
+
+        try
+        {
+            var (isValid, _, _, status) = await VerifyOtpRecordAsync(request.Email, request.Otp, cancellationToken);
+            if (!isValid)
+                return (false, MapOtpErrorCode(status), status);
+
+            return (true, null, AuthResultStatus.Success);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error during OTP verification for email: {Email}", request.Email);
+            return (false, "An unexpected error occurred while verifying the code.", AuthResultStatus.Failure);
+        }
+    }
+
+    /// <summary>
+    /// Looks up the OTP record for the given email and checks it against the submitted code,
+    /// applying the shared expiry check and failed-attempt lockout. Shared by
+    /// <see cref="ResetPasswordAsync"/> and <see cref="VerifyOtpAsync"/> so both endpoints stay
+    /// in sync. Does not consume the record on success — callers that need to invalidate it
+    /// (e.g. after actually resetting the password) must remove it themselves.
+    /// </summary>
+    private async Task<(bool IsValid, User? User, PasswordResetOtp? Record, AuthResultStatus Status)> VerifyOtpRecordAsync(
+        string email,
+        string otp,
+        CancellationToken cancellationToken
+    )
+    {
+        var user = await _unitOfWork.Users.GetByEmailAsync(email, cancellationToken);
+        if (user is null)
+            return (false, null, null, AuthResultStatus.InvalidOtp);
+
+        var record = await _unitOfWork.PasswordResetOtps.FirstOrDefaultAsync(
+            o => o.UserId == user.Id,
+            cancellationToken);
+        if (record is null)
+            return (false, null, null, AuthResultStatus.InvalidOtp);
+
+        if (record.ExpiresAt < DateTime.UtcNow)
+        {
+            _unitOfWork.PasswordResetOtps.Remove(record);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return (false, null, null, AuthResultStatus.OtpExpired);
+        }
+
+        if (!_passwordHasher.VerifyPassword(otp, record.OtpHash))
+        {
+            record.FailedAttempts++;
+
+            if (record.FailedAttempts >= MaxOtpFailedAttempts)
+            {
+                _unitOfWork.PasswordResetOtps.Remove(record);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+                _logger.LogWarning("Forgot-password OTP locked after too many failed attempts. UserId: {UserId}", user.Id);
+                return (false, null, null, AuthResultStatus.TooManyOtpAttempts);
+            }
+
+            _unitOfWork.PasswordResetOtps.Update(record);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return (false, null, null, AuthResultStatus.InvalidOtp);
+        }
+
+        return (true, user, record, AuthResultStatus.Success);
+    }
+
+    private static string MapOtpErrorCode(AuthResultStatus status) => status switch
+    {
+        AuthResultStatus.OtpExpired => "otp_expired",
+        AuthResultStatus.TooManyOtpAttempts => "too_many_attempts",
+        _ => "invalid_otp"
+    };
 
     /// <summary>
     /// Generates a cryptographically random 6-digit numeric OTP, zero-padded (e.g. "042817").
