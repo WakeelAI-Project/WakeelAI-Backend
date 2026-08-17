@@ -57,6 +57,13 @@ public class InternalAiDocumentController : ControllerBase
     [HttpPost("ai/documents/save")]
     public async Task<IActionResult> SaveGeneratedDocument([FromBody] SaveDocumentRequest request, CancellationToken cancellationToken)
     {
+        var role = Request.Headers["X-Role"].ToString();
+        if (!string.Equals(role, "HR_Manager", StringComparison.Ordinal))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden,
+                new { error = new { code = "forbidden", message = "Only HR managers can generate documents." } });
+        }
+
         if (!ModelState.IsValid)
             return BadRequest(ModelState);
 

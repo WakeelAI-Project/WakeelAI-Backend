@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using Microsoft.Extensions.Logging;
 using System.Threading.Tasks;
 using Wakeel.Application.DTOs.LeaveRequests;
 using Wakeel.Application.Interfaces;
@@ -15,11 +16,19 @@ public class LeaveRequestService : ILeaveRequestService
 {
     private readonly IUnitOfWork _unitOfWork;
     private readonly IFileService _fileService;
+    private readonly IEmailSender _emailSender;
+    private readonly ILogger<LeaveRequestService> _logger;
 
-    public LeaveRequestService(IUnitOfWork unitOfWork, IFileService fileService)
+    public LeaveRequestService(
+        IUnitOfWork unitOfWork, 
+        IFileService fileService, 
+        IEmailSender emailSender, 
+        ILogger<LeaveRequestService> logger)
     {
-        _unitOfWork = unitOfWork;
-        _fileService = fileService;
+        _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
+        _fileService = fileService ?? throw new ArgumentNullException(nameof(fileService));
+        _emailSender = emailSender ?? throw new ArgumentNullException(nameof(emailSender));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
     public async Task<LeaveRequestDto> CreateDraftAsync(Guid employeeId, Guid companyId, CreateLeaveRequestDto dto, (System.IO.Stream Stream, string FileName)? attachment, CancellationToken cancellationToken = default)
@@ -32,17 +41,7 @@ public class LeaveRequestService : ILeaveRequestService
 
         var daysRequested = endDate.DayNumber - startDate.DayNumber + 1; // Inclusive calendar days
 
-        // Check sufficient balance at creation if Annual or Sick
-        if (dto.LeaveType == "Annual" || dto.LeaveType == "Sick")
-        {
-            var year = startDate.Year;
-            var balance = await _unitOfWork.LeaveBalances.FirstOrDefaultAsync(lb => lb.EmployeeId == employeeId && lb.LeaveType == dto.LeaveType && lb.Year == year, cancellationToken);
-            
-            if (balance == null || (balance.TotalDays.HasValue && balance.TotalDays.Value - balance.UsedDays < daysRequested))
-            {
-                throw new InvalidOperationException("insufficient_leave_balance");
-            }
-        }
+        await ValidateNoOverlapAndBalanceAsync(employeeId, dto.LeaveType, startDate, endDate, daysRequested, cancellationToken);
 
         var leaveRequest = new LeaveRequest
         {
@@ -88,17 +87,7 @@ public class LeaveRequestService : ILeaveRequestService
 
         var daysRequested = endDate.DayNumber - startDate.DayNumber + 1;
 
-        // Check sufficient balance at creation for Annual or Sick leave
-        if (dto.LeaveType == "Annual" || dto.LeaveType == "Sick")
-        {
-            var year = startDate.Year;
-            var balance = await _unitOfWork.LeaveBalances.FirstOrDefaultAsync(
-                lb => lb.EmployeeId == employeeId && lb.LeaveType == dto.LeaveType && lb.Year == year,
-                cancellationToken);
-
-            if (balance == null || (balance.TotalDays.HasValue && balance.TotalDays.Value - balance.UsedDays < daysRequested))
-                throw new InvalidOperationException("insufficient_leave_balance");
-        }
+        await ValidateNoOverlapAndBalanceAsync(employeeId, dto.LeaveType, startDate, endDate, daysRequested, cancellationToken);
 
         // For Sick leave, the attachment_url must be provided (pre-uploaded via POST /api/leave-requests/attachments)
         if (dto.LeaveType == "Sick" && string.IsNullOrWhiteSpace(dto.AttachmentUrl))
@@ -287,6 +276,28 @@ public class LeaveRequestService : ILeaveRequestService
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         var user = await _unitOfWork.Users.GetByIdAsync(request.EmployeeId, cancellationToken);
+        
+        if (user != null && !string.IsNullOrWhiteSpace(user.Email))
+        {
+            var subject = dto.Status == "Approved"
+                ? "Your leave request has been approved"
+                : "Your leave request has been rejected";
+            var body =
+                $"<p>Hello {user.FullName},</p>" +
+                $"<p>Your {request.LeaveType} leave request from <strong>{request.StartDate:yyyy-MM-dd}</strong> " +
+                $"to <strong>{request.EndDate:yyyy-MM-dd}</strong> ({request.DaysRequested} day(s)) has been " +
+                $"<strong>{dto.Status}</strong>.</p>" +
+                (string.IsNullOrWhiteSpace(request.HrNote) ? string.Empty : $"<p>HR note: {request.HrNote}</p>");
+            try
+            {
+                await _emailSender.SendEmailAsync(user.Email, subject, body, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to send leave request review email to {Email}", user.Email);
+            }
+        }
+
         return MapToDto(request, user?.FullName);
     }
 
@@ -309,5 +320,51 @@ public class LeaveRequestService : ILeaveRequestService
             SubmittedAt = request.SubmittedAt,
             ReviewedAt = request.ReviewedAt
         };
+    }
+
+    private async Task ValidateNoOverlapAndBalanceAsync(
+        Guid employeeId,
+        string leaveType,
+        DateOnly startDate,
+        DateOnly endDate,
+        int daysRequested,
+        CancellationToken cancellationToken)
+    {
+        // 1) Reject any request overlapping an existing active request (any leave type).
+        var overlapping = await _unitOfWork.LeaveRequests.FirstOrDefaultAsync(lr =>
+            lr.EmployeeId == employeeId &&
+            (lr.Status == "Draft" || lr.Status == "Pending" || lr.Status == "Approved") &&
+            lr.StartDate <= endDate && lr.EndDate >= startDate,
+            cancellationToken);
+
+        if (overlapping != null)
+            throw new InvalidOperationException("overlapping_leave_request");
+
+        // 2) Balance check that also reserves days held by Draft/Pending requests of the same type.
+        if (leaveType == "Annual" || leaveType == "Sick")
+        {
+            var year = startDate.Year;
+            var balance = await _unitOfWork.LeaveBalances.FirstOrDefaultAsync(
+                lb => lb.EmployeeId == employeeId && lb.LeaveType == leaveType && lb.Year == year,
+                cancellationToken);
+
+            if (balance == null)
+                throw new InvalidOperationException("insufficient_leave_balance");
+
+            if (balance.TotalDays.HasValue)
+            {
+                var activeRequests = await _unitOfWork.LeaveRequests.FindAsync(lr =>
+                    lr.EmployeeId == employeeId &&
+                    lr.LeaveType == leaveType &&
+                    (lr.Status == "Draft" || lr.Status == "Pending") &&
+                    lr.StartDate.Year == year,
+                    cancellationToken);
+
+                var reservedDays = activeRequests.Sum(lr => lr.DaysRequested);
+                var remaining = balance.TotalDays.Value - balance.UsedDays - reservedDays;
+                if (remaining < daysRequested)
+                    throw new InvalidOperationException("insufficient_leave_balance");
+            }
+        }
     }
 }

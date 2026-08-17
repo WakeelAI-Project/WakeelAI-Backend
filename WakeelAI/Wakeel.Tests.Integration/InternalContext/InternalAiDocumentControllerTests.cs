@@ -24,6 +24,7 @@ public class InternalAiDocumentControllerTests : IClassFixture<CustomWebApplicat
         _factory = factory;
     }
 
+
     private HttpRequestMessage BuildInternalRequest(string url, string? psk, string? userId, string? companyId, string? role, object body)
     {
         var request = new HttpRequestMessage(HttpMethod.Post, url);
@@ -98,7 +99,7 @@ public class InternalAiDocumentControllerTests : IClassFixture<CustomWebApplicat
             metadata = new { reason = "Test" }
         };
 
-        var request = BuildInternalRequest("/api/ai/documents/save", ValidPsk, Guid.NewGuid().ToString(), owner.CompanyId.ToString(), "Employee", payload);
+        var request = BuildInternalRequest("/api/ai/documents/save", ValidPsk, Guid.NewGuid().ToString(), owner.CompanyId.ToString(), "HR_Manager", payload);
         
         // 3. Send request
         var response = await client.SendAsync(request);

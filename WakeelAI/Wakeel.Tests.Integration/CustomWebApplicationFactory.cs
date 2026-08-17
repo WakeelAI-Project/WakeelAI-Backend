@@ -25,7 +25,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IDisp
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        builder.UseEnvironment("Development");
+        builder.UseEnvironment("Testing");
 
         builder.ConfigureAppConfiguration((context, configBuilder) =>
         {
