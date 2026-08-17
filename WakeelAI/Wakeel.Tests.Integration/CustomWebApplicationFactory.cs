@@ -5,6 +5,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Wakeel.Infrastructure.Persistence;
+using Wakeel.Application.Interfaces;
+using Wakeel.Infrastructure.Services;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Wakeel.Tests.Integration;
 
@@ -26,6 +29,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IDisp
 
         builder.ConfigureAppConfiguration((context, configBuilder) =>
         {
+
             configBuilder.AddInMemoryCollection(new[]
             {
                 new KeyValuePair<string, string?>("ConnectionStrings:DefaultConnection", TestConnectionString),
@@ -37,6 +41,9 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IDisp
 
         builder.ConfigureServices(services =>
         {
+            services.RemoveAll<IEmailSender>();
+            services.AddScoped<IEmailSender, FileEmailSender>();
+
             using var scope = services.BuildServiceProvider().CreateScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
