@@ -57,6 +57,9 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<IFileService, LocalFileService>();
         services.AddScoped<IPdfGeneratorService, QuestPdfGeneratorService>();
 
+        services.AddHttpContextAccessor();
+        services.AddScoped<IPublicUrlBuilder, PublicUrlBuilder>();
+
         // Register the named HttpClient for Node.js AI service calls.
         // 60-second timeout is required to prevent orphaned LLM generation tasks.
         services.AddHttpClient("AiNodeClient", client =>
