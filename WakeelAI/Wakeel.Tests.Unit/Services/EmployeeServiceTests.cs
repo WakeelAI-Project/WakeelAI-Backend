@@ -21,6 +21,7 @@ public class EmployeeServiceTests
     private readonly Mock<IEmployeeProfileRepository> _employeeProfileRepositoryMock = new();
     private readonly Mock<IRefreshTokenRepository> _refreshTokenRepositoryMock = new();
     private readonly Mock<ILeaveBalanceRepository> _leaveBalanceRepositoryMock = new();
+    private readonly Mock<ILeaveRequestRepository> _leaveRequestRepositoryMock = new();
     private readonly Mock<IDepartmentRepository> _departmentRepositoryMock = new();
     private readonly Mock<IPasswordHasher> _passwordHasherMock = new();
     private readonly Mock<ILogger<EmployeeService>> _loggerMock = new();
@@ -35,6 +36,7 @@ public class EmployeeServiceTests
         _unitOfWorkMock.Setup(u => u.EmployeeProfiles).Returns(_employeeProfileRepositoryMock.Object);
         _unitOfWorkMock.Setup(u => u.RefreshTokens).Returns(_refreshTokenRepositoryMock.Object);
         _unitOfWorkMock.Setup(u => u.LeaveBalances).Returns(_leaveBalanceRepositoryMock.Object);
+        _unitOfWorkMock.Setup(u => u.LeaveRequests).Returns(_leaveRequestRepositoryMock.Object);
         _unitOfWorkMock.Setup(u => u.Departments).Returns(_departmentRepositoryMock.Object);
 
         _refreshTokenRepositoryMock
@@ -48,6 +50,10 @@ public class EmployeeServiceTests
         _leaveBalanceRepositoryMock
             .Setup(r => r.FindAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveBalance, bool>>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<LeaveBalance>());
+
+        _leaveRequestRepositoryMock
+            .Setup(r => r.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveRequest, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((LeaveRequest?)null);
 
         _passwordHasherMock
             .Setup(h => h.HashPassword(It.IsAny<string>()))
@@ -381,6 +387,59 @@ public class EmployeeServiceTests
         result.LeaveBalance!.Annual.Should().BeEquivalentTo(new LeaveTypeBalance { TotalDays = 15, UsedDays = 2, RemainingDays = 13 });
         result.LeaveBalance.Sick.Should().BeEquivalentTo(new LeaveTypeBalance { TotalDays = 10, UsedDays = 0, RemainingDays = 10 });
         result.LeaveBalance.Unpaid.Should().BeEquivalentTo(new LeaveTypeBalance { TotalDays = null, UsedDays = 1, RemainingDays = null });
+    }
+
+    [Fact]
+    public async Task GetEmployeeAsync_GivenNoLeaveInProgress_ShouldReturnNullCurrentLeave()
+    {
+        // Arrange
+        var (profile, user) = CreateProfileAndUser();
+        _employeeProfileRepositoryMock.Setup(r => r.GetByIdAsync(profile.UserId, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
+        _userRepositoryMock.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        // Act
+        var result = await _sut.GetEmployeeAsync(user.CompanyId, profile.UserId);
+
+        // Assert
+        result!.CurrentLeave.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GetEmployeeAsync_GivenApprovedLeaveInProgress_ShouldMapElapsedDaysFromToday()
+    {
+        // Arrange
+        var (profile, user) = CreateProfileAndUser();
+        _employeeProfileRepositoryMock.Setup(r => r.GetByIdAsync(profile.UserId, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
+        _userRepositoryMock.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var activeLeave = new LeaveRequest
+        {
+            Id = Guid.NewGuid(),
+            EmployeeId = profile.UserId,
+            CompanyId = user.CompanyId,
+            LeaveType = "Annual",
+            StartDate = today.AddDays(-2), // day 3 of a 5-day leave
+            EndDate = today.AddDays(2),
+            DaysRequested = 5,
+            Status = "Approved"
+        };
+        _leaveRequestRepositoryMock
+            .Setup(r => r.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveRequest, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(activeLeave);
+
+        // Act
+        var result = await _sut.GetEmployeeAsync(user.CompanyId, profile.UserId);
+
+        // Assert
+        result!.CurrentLeave.Should().BeEquivalentTo(new CurrentLeaveInfo
+        {
+            LeaveType = "Annual",
+            StartDate = activeLeave.StartDate.ToString("yyyy-MM-dd"),
+            EndDate = activeLeave.EndDate.ToString("yyyy-MM-dd"),
+            TotalDays = 5,
+            ElapsedDays = 3
+        });
     }
 
     // ------------------------------------------------------------
