@@ -18,4 +18,5 @@ public record EmployeeDetailResponse
     [JsonPropertyName("contract_type")] public string ContractType { get; init; } = string.Empty;
     [JsonPropertyName("employment_status")] public string EmploymentStatus { get; init; } = string.Empty;
     [JsonPropertyName("leave_balance")] public LeaveBalanceSummary? LeaveBalance { get; init; }
+    [JsonPropertyName("current_leave")] public CurrentLeaveInfo? CurrentLeave { get; init; }
 }

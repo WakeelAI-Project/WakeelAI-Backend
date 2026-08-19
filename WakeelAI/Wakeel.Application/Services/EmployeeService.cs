@@ -137,6 +137,11 @@ public class EmployeeService : IEmployeeService
         var balances = await _unitOfWork.LeaveBalances.FindAsync(
             lb => lb.EmployeeId == profile.UserId && lb.Year == currentYear, cancellationToken);
 
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var activeLeave = await _unitOfWork.LeaveRequests.FirstOrDefaultAsync(
+            lr => lr.EmployeeId == profile.UserId && lr.Status == "Approved" && lr.StartDate <= today && lr.EndDate >= today,
+            cancellationToken);
+
         return new EmployeeDetailResponse
         {
             RecordId = profile.UserId,
@@ -156,7 +161,8 @@ public class EmployeeService : IEmployeeService
                 Annual = MapLeaveBalance(balances, "Annual"),
                 Sick = MapLeaveBalance(balances, "Sick"),
                 Unpaid = MapLeaveBalance(balances, "Unpaid")
-            }
+            },
+            CurrentLeave = MapCurrentLeave(activeLeave, today)
         };
     }
 
@@ -324,6 +330,21 @@ public class EmployeeService : IEmployeeService
             TotalDays = match.TotalDays,
             UsedDays = match.UsedDays,
             RemainingDays = match.TotalDays.HasValue ? match.TotalDays.Value - match.UsedDays : null
+        };
+    }
+
+    private static CurrentLeaveInfo? MapCurrentLeave(LeaveRequest? request, DateOnly today)
+    {
+        if (request is null)
+            return null;
+
+        return new CurrentLeaveInfo
+        {
+            LeaveType = request.LeaveType,
+            StartDate = request.StartDate.ToString("yyyy-MM-dd"),
+            EndDate = request.EndDate.ToString("yyyy-MM-dd"),
+            TotalDays = request.DaysRequested,
+            ElapsedDays = today.DayNumber - request.StartDate.DayNumber + 1
         };
     }
 
