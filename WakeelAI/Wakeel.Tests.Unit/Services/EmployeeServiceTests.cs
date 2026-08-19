@@ -249,7 +249,7 @@ public class EmployeeServiceTests
         sick.TotalDays.Should().Be(10);
 
         var unpaid = addedBalances.Should().ContainSingle(lb => lb.LeaveType == "Unpaid").Subject;
-        unpaid.TotalDays.Should().BeNull();
+        unpaid.TotalDays.Should().Be(0);
     }
 
     [Fact]

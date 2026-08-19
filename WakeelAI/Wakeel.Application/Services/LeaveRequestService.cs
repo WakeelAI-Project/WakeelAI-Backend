@@ -340,8 +340,9 @@ public class LeaveRequestService : ILeaveRequestService
         if (overlapping != null)
             throw new InvalidOperationException("overlapping_leave_request");
 
-        // 2) Balance check that also reserves days held by Draft/Pending requests of the same type.
-        if (leaveType == "Annual" || leaveType == "Sick")
+        // 2) Balance check that also reserves days held by Draft/Pending requests of the same
+        // type. Unpaid is included here too now that it carries a real (if often zero) cap.
+        if (leaveType == "Annual" || leaveType == "Sick" || leaveType == "Unpaid")
         {
             var year = startDate.Year;
             var balance = await _unitOfWork.LeaveBalances.FirstOrDefaultAsync(

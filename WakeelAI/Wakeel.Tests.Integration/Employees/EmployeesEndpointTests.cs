@@ -88,7 +88,7 @@ public class EmployeesEndpointTests : IClassFixture<CustomWebApplicationFactory>
         leaveBalances.Should().HaveCount(3);
         leaveBalances.Should().ContainSingle(lb => lb.LeaveType == "Annual" && lb.TotalDays == 15 && lb.UsedDays == 0);
         leaveBalances.Should().ContainSingle(lb => lb.LeaveType == "Sick" && lb.TotalDays == 10 && lb.UsedDays == 0);
-        leaveBalances.Should().ContainSingle(lb => lb.LeaveType == "Unpaid" && lb.TotalDays == null && lb.UsedDays == 0);
+        leaveBalances.Should().ContainSingle(lb => lb.LeaveType == "Unpaid" && lb.TotalDays == 0 && lb.UsedDays == 0);
     }
 
     [Fact]

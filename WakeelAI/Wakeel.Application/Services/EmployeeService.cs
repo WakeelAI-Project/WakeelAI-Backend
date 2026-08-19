@@ -82,7 +82,10 @@ public class EmployeeService : IEmployeeService
         {
             new LeaveBalance { Id = Guid.NewGuid(), EmployeeId = profile.UserId, LeaveType = "Annual", TotalDays = 15, UsedDays = 0, Year = currentYear },
             new LeaveBalance { Id = Guid.NewGuid(), EmployeeId = profile.UserId, LeaveType = "Sick", TotalDays = 10, UsedDays = 0, Year = currentYear },
-            new LeaveBalance { Id = Guid.NewGuid(), EmployeeId = profile.UserId, LeaveType = "Unpaid", TotalDays = null, UsedDays = 0, Year = currentYear }
+            // Starts at 0, not null: no employee has an unpaid-leave entitlement by
+            // default, HR grants one explicitly by raising TotalDays. A null total
+            // used to mean "uncapped", which read as "Unlimited" to every employee.
+            new LeaveBalance { Id = Guid.NewGuid(), EmployeeId = profile.UserId, LeaveType = "Unpaid", TotalDays = 0, UsedDays = 0, Year = currentYear }
         };
 
         foreach (var leaveBalance in leaveBalances)
