@@ -9,6 +9,7 @@ public record EmployeeDetailResponse
     [JsonPropertyName("user_id")] public Guid UserId { get; init; }
     [JsonPropertyName("full_name")] public string FullName { get; init; } = string.Empty;
     [JsonPropertyName("email")] public string Email { get; init; } = string.Empty;
+    [JsonPropertyName("photo_url")] public string? PhotoUrl { get; init; }
     [JsonPropertyName("job_title")] public string JobTitle { get; init; } = string.Empty;
     [JsonPropertyName("department_id")] public Guid DepartmentId { get; init; }
     [JsonPropertyName("department")] public string? Department { get; init; }

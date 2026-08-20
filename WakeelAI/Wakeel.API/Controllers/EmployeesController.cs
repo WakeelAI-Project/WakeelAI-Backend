@@ -1,7 +1,10 @@
 using System;
+using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Wakeel.Application.DTOs.Employees;
 using Wakeel.Application.Interfaces;
@@ -10,8 +13,11 @@ namespace Wakeel.API.Controllers;
 
 [ApiController]
 [Route("api/employees")]
-public class EmployeesController(IEmployeeService employeeService) : ControllerBase
+public class EmployeesController(IEmployeeService employeeService, IFileService fileService) : ControllerBase
 {
+    private static readonly string[] AllowedPhotoExtensions = { ".jpg", ".jpeg", ".png" };
+    private const long MaxPhotoSizeBytes = 5 * 1024 * 1024; // 5 MB
+
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateEmployeeRequest request, CancellationToken cancellationToken)
     {
@@ -111,6 +117,51 @@ public class EmployeesController(IEmployeeService employeeService) : ControllerB
             return NotFound(new ApiErrorResponse { Error = "employee_not_found", Message = "Employee not found.", Status = 404 });
 
         return Ok(detail);
+    }
+
+    [Authorize(Roles = "Employee")]
+    [HttpPost("me/photo")]
+    public async Task<IActionResult> UploadMyPhoto(IFormFile? file, CancellationToken cancellationToken)
+    {
+        var companyIdClaim = User.FindFirst("company_id")?.Value;
+        var userIdClaim = User.FindFirst("user_id")?.Value;
+        if (!Guid.TryParse(companyIdClaim, out var companyId) || !Guid.TryParse(userIdClaim, out var userId))
+            return Forbid();
+
+        if (file == null || file.Length == 0)
+            return BadRequest(new ApiErrorResponse { Error = "validation_error", Message = "A photo file is required.", Status = 400 });
+
+        if (file.Length > MaxPhotoSizeBytes)
+            return BadRequest(new ApiErrorResponse { Error = "invalid_photo", Message = "Photo exceeds the 5 MB size limit.", Status = 400 });
+
+        var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+        if (!AllowedPhotoExtensions.Contains(extension))
+            return BadRequest(new ApiErrorResponse { Error = "invalid_photo", Message = "Only JPG and PNG files are allowed.", Status = 400 });
+
+        using var stream = file.OpenReadStream();
+        var photoUrl = await fileService.SaveFileAsync(stream, file.FileName, "profile-photos", cancellationToken);
+
+        var updated = await employeeService.UpdatePhotoAsync(companyId, userId, photoUrl, cancellationToken);
+        if (updated is null)
+            return NotFound(new ApiErrorResponse { Error = "employee_not_found", Message = "Employee not found.", Status = 404 });
+
+        return Ok(updated);
+    }
+
+    [Authorize(Roles = "Employee")]
+    [HttpDelete("me/photo")]
+    public async Task<IActionResult> RemoveMyPhoto(CancellationToken cancellationToken)
+    {
+        var companyIdClaim = User.FindFirst("company_id")?.Value;
+        var userIdClaim = User.FindFirst("user_id")?.Value;
+        if (!Guid.TryParse(companyIdClaim, out var companyId) || !Guid.TryParse(userIdClaim, out var userId))
+            return Forbid();
+
+        var updated = await employeeService.RemovePhotoAsync(companyId, userId, cancellationToken);
+        if (updated is null)
+            return NotFound(new ApiErrorResponse { Error = "employee_not_found", Message = "Employee not found.", Status = 404 });
+
+        return Ok(updated);
     }
 
     [Authorize(Roles = "HR_Manager")]
