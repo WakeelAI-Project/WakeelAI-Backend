@@ -443,6 +443,90 @@ public class EmployeeServiceTests
     }
 
     // ------------------------------------------------------------
+    // UpdatePhotoAsync / RemovePhotoAsync
+    // ------------------------------------------------------------
+
+    [Fact]
+    public async Task UpdatePhotoAsync_GivenUnknownUserId_ShouldReturnNull()
+    {
+        // Arrange
+        _userRepositoryMock.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((User?)null);
+
+        // Act
+        var result = await _sut.UpdatePhotoAsync(Guid.NewGuid(), Guid.NewGuid(), "/uploads/profile-photos/x.jpg");
+
+        // Assert
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task UpdatePhotoAsync_GivenUserFromAnotherCompany_ShouldReturnNullAndNotSave()
+    {
+        // Arrange
+        var (_, user) = CreateProfileAndUser();
+        _userRepositoryMock.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        // Act
+        var result = await _sut.UpdatePhotoAsync(Guid.NewGuid(), user.Id, "/uploads/profile-photos/x.jpg");
+
+        // Assert
+        result.Should().BeNull();
+        _unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdatePhotoAsync_GivenValidUser_ShouldSetPhotoUrlAndReturnUpdatedDetail()
+    {
+        // Arrange
+        var (profile, user) = CreateProfileAndUser();
+        _employeeProfileRepositoryMock.Setup(r => r.GetByIdAsync(profile.UserId, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
+        _userRepositoryMock.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        // Act
+        var result = await _sut.UpdatePhotoAsync(user.CompanyId, user.Id, "/uploads/profile-photos/new.jpg");
+
+        // Assert
+        user.PhotoUrl.Should().Be("/uploads/profile-photos/new.jpg");
+        result!.PhotoUrl.Should().Be("/uploads/profile-photos/new.jpg");
+        _unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task RemovePhotoAsync_GivenValidUser_ShouldClearPhotoUrl()
+    {
+        // Arrange
+        var (profile, user) = CreateProfileAndUser();
+        user.PhotoUrl = "/uploads/profile-photos/old.jpg";
+        _employeeProfileRepositoryMock.Setup(r => r.GetByIdAsync(profile.UserId, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
+        _userRepositoryMock.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        // Act
+        var result = await _sut.RemovePhotoAsync(user.CompanyId, user.Id);
+
+        // Assert
+        user.PhotoUrl.Should().BeNull();
+        result!.PhotoUrl.Should().BeNull();
+        _unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task RemovePhotoAsync_GivenUserFromAnotherCompany_ShouldReturnNullAndNotSave()
+    {
+        // Arrange
+        var (_, user) = CreateProfileAndUser();
+        user.PhotoUrl = "/uploads/profile-photos/old.jpg";
+        _userRepositoryMock.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        // Act
+        var result = await _sut.RemovePhotoAsync(Guid.NewGuid(), user.Id);
+
+        // Assert
+        result.Should().BeNull();
+        user.PhotoUrl.Should().Be("/uploads/profile-photos/old.jpg");
+        _unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // ------------------------------------------------------------
     // ListEmployeesAsync
     // ------------------------------------------------------------
 

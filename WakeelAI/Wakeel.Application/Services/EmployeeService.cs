@@ -148,6 +148,7 @@ public class EmployeeService : IEmployeeService
             UserId = profile.UserId,
             FullName = user.FullName,
             Email = user.Email,
+            PhotoUrl = user.PhotoUrl,
             JobTitle = profile.JobTitle,
             DepartmentId = profile.DepartmentId,
             Department = department?.Name,
@@ -164,6 +165,32 @@ public class EmployeeService : IEmployeeService
             },
             CurrentLeave = MapCurrentLeave(activeLeave, today)
         };
+    }
+
+    public async Task<EmployeeDetailResponse?> UpdatePhotoAsync(Guid companyId, Guid userId, string photoUrl, CancellationToken cancellationToken = default)
+    {
+        var user = await _unitOfWork.Users.GetByIdAsync(userId, cancellationToken);
+        if (user is null || user.CompanyId != companyId)
+            return null;
+
+        user.PhotoUrl = photoUrl;
+        _unitOfWork.Users.Update(user);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return await GetEmployeeAsync(companyId, userId, cancellationToken);
+    }
+
+    public async Task<EmployeeDetailResponse?> RemovePhotoAsync(Guid companyId, Guid userId, CancellationToken cancellationToken = default)
+    {
+        var user = await _unitOfWork.Users.GetByIdAsync(userId, cancellationToken);
+        if (user is null || user.CompanyId != companyId)
+            return null;
+
+        user.PhotoUrl = null;
+        _unitOfWork.Users.Update(user);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return await GetEmployeeAsync(companyId, userId, cancellationToken);
     }
 
     public async Task<EmployeeListResponse> ListEmployeesAsync(Guid companyId, string? status, string? search, int page, int limit, CancellationToken cancellationToken = default)
@@ -269,6 +296,7 @@ public class EmployeeService : IEmployeeService
             UserId = profile.UserId,
             FullName = user.FullName,
             Email = user.Email,
+            PhotoUrl = user.PhotoUrl,
             JobTitle = profile.JobTitle,
             DepartmentId = profile.DepartmentId,
             Department = department?.Name,

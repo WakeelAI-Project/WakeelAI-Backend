@@ -1,3 +1,4 @@
+using System.IO;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -452,6 +453,77 @@ public class EmployeesEndpointTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     // ------------------------------------------------------------
+    // Photo
+    // ------------------------------------------------------------
+
+    [Fact]
+    public async Task UploadMyPhoto_GivenValidImage_ShouldReturn200AndPersistPhotoUrl()
+    {
+        var (hrToken, _, departmentId) = await SeedCompanyWithHrAsync();
+        var recordId = await CreateEmployeeAsync(hrToken, departmentId);
+        var employeeToken = await LoginAsEmployeeAsync(recordId);
+
+        var response = await SendPhotoAsync(HttpMethod.Post, "/api/employees/me/photo", employeeToken, "avatar.png", "image/png");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var photoUrl = body.GetProperty("photo_url").GetString();
+        photoUrl.Should().NotBeNullOrEmpty();
+        photoUrl.Should().Contain("/uploads/profile-photos/");
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var user = await db.Users.FirstAsync(u => u.Id == recordId);
+        user.PhotoUrl.Should().Be(photoUrl);
+    }
+
+    [Fact]
+    public async Task UploadMyPhoto_GivenNonImageFile_ShouldReturn400()
+    {
+        var (hrToken, _, departmentId) = await SeedCompanyWithHrAsync();
+        var recordId = await CreateEmployeeAsync(hrToken, departmentId);
+        var employeeToken = await LoginAsEmployeeAsync(recordId);
+
+        var response = await SendPhotoAsync(HttpMethod.Post, "/api/employees/me/photo", employeeToken, "report.pdf", "application/pdf");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("error").GetString().Should().Be("invalid_photo");
+    }
+
+    [Fact]
+    public async Task UploadMyPhoto_GivenHrCaller_ShouldReturn403()
+    {
+        var (hrToken, _, _) = await SeedCompanyWithHrAsync();
+
+        var response = await SendPhotoAsync(HttpMethod.Post, "/api/employees/me/photo", hrToken, "avatar.png", "image/png");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task RemoveMyPhoto_GivenExistingPhoto_ShouldClearPhotoUrlAndFallBackToNull()
+    {
+        var (hrToken, _, departmentId) = await SeedCompanyWithHrAsync();
+        var recordId = await CreateEmployeeAsync(hrToken, departmentId);
+        var employeeToken = await LoginAsEmployeeAsync(recordId);
+
+        var uploadResponse = await SendPhotoAsync(HttpMethod.Post, "/api/employees/me/photo", employeeToken, "avatar.png", "image/png");
+        uploadResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var removeResponse = await SendAsync(HttpMethod.Delete, "/api/employees/me/photo", employeeToken);
+
+        removeResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await removeResponse.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("photo_url").ValueKind.Should().Be(JsonValueKind.Null);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var user = await db.Users.FirstAsync(u => u.Id == recordId);
+        user.PhotoUrl.Should().BeNull();
+    }
+
+    // ------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------
 
@@ -551,6 +623,43 @@ public class EmployeesEndpointTests : IClassFixture<CustomWebApplicationFactory>
         };
         if (body is not null)
             request.Content = JsonContent.Create(body);
+
+        return await _client.SendAsync(request);
+    }
+
+    private async Task<string> LoginAsEmployeeAsync(Guid recordId)
+    {
+        string email;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var hasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher>();
+            var employeeUser = await db.Users.FirstAsync(u => u.Id == recordId);
+            email = employeeUser.Email;
+            employeeUser.PasswordHash = hasher.HashPassword(KnownPassword);
+            await db.SaveChangesAsync();
+        }
+
+        var loginResponse = await _client.PostAsJsonAsync("/api/auth/login", new { email, password = KnownPassword });
+        loginResponse.EnsureSuccessStatusCode();
+
+        var loginBody = await loginResponse.Content.ReadFromJsonAsync<JsonElement>();
+        return loginBody.GetProperty("access_token").GetString()!;
+    }
+
+    private async Task<HttpResponseMessage> SendPhotoAsync(HttpMethod method, string url, string token, string fileName, string contentType)
+    {
+        using var content = new MultipartFormDataContent();
+        using var ms = new MemoryStream(new byte[] { 1, 2, 3, 4 });
+        var streamContent = new StreamContent(ms);
+        streamContent.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+        content.Add(streamContent, "file", fileName);
+
+        var request = new HttpRequestMessage(method, url)
+        {
+            Headers = { Authorization = new AuthenticationHeaderValue("Bearer", token) },
+            Content = content
+        };
 
         return await _client.SendAsync(request);
     }

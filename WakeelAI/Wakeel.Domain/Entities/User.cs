@@ -12,6 +12,7 @@ public class User
     public string PasswordHash { get; set; } = string.Empty;
     public string FullName { get; set; } = string.Empty;
     public string Phone { get; set; } = string.Empty;
+    public string? PhotoUrl { get; set; }
     public UserRole Role { get; set; }
     public bool IsActive { get; set; }
     public bool IsEmailConfirmed { get; set; }
