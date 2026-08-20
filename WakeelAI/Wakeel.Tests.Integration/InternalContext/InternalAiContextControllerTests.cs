@@ -69,7 +69,8 @@ public class InternalAiContextControllerTests : IClassFixture<CustomWebApplicati
             DepartmentId = dept.Id,
             JobTitle = "Dev",
             HireDate = new DateOnly(2020, 1, 1),
-            ContractType = "FullTime"
+            ContractType = "FullTime",
+            Salary = 15000m
         };
         db.EmployeeProfiles.Add(profile);
         
@@ -136,6 +137,8 @@ public class InternalAiContextControllerTests : IClassFixture<CustomWebApplicati
         doc.RootElement.GetProperty("company_id").GetString().Should().Be(companyId.ToString());
         doc.RootElement.GetProperty("full_name").GetString().Should().Be("Test Employee");
         doc.RootElement.GetProperty("employment_status").GetString().Should().Be("Active");
+        doc.RootElement.TryGetProperty("salary", out _).Should().BeTrue();
+        doc.RootElement.GetProperty("salary").GetDecimal().Should().Be(15000m);
         
         var balance = doc.RootElement.GetProperty("leave_balance");
         var annual = balance.GetProperty("annual");
