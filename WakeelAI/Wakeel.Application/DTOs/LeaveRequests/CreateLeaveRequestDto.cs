@@ -7,7 +7,7 @@ public class CreateLeaveRequestDto
 {
     [JsonPropertyName("leave_type")]
     [Required(ErrorMessage = "leave_type is required.")]
-    [RegularExpression("^(Annual|Sick|Unpaid)$", ErrorMessage = "leave_type must be Annual, Sick, or Unpaid.")]
+    [RegularExpression("(?i)^(Annual|Sick|Unpaid)(_leave|\\sleave|leave)?$", ErrorMessage = "leave_type must be Annual, Sick, or Unpaid.")]
     public string LeaveType { get; set; } = string.Empty;
 
     [JsonPropertyName("start_date")]

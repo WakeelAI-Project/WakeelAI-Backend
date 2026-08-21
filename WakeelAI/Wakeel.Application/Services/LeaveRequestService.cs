@@ -33,6 +33,8 @@ public class LeaveRequestService : ILeaveRequestService
 
     public async Task<LeaveRequestDto> CreateDraftAsync(Guid employeeId, Guid companyId, CreateLeaveRequestDto dto, (System.IO.Stream Stream, string FileName)? attachment, CancellationToken cancellationToken = default)
     {
+        var normalizedLeaveType = NormalizeLeaveType(dto.LeaveType);
+
         if (!DateOnly.TryParse(dto.StartDate, out var startDate) || !DateOnly.TryParse(dto.EndDate, out var endDate))
             throw new InvalidOperationException("validation_error");
 
@@ -41,14 +43,14 @@ public class LeaveRequestService : ILeaveRequestService
 
         var daysRequested = endDate.DayNumber - startDate.DayNumber + 1; // Inclusive calendar days
 
-        await ValidateNoOverlapAndBalanceAsync(employeeId, dto.LeaveType, startDate, endDate, daysRequested, cancellationToken);
+        await ValidateNoOverlapAndBalanceAsync(employeeId, normalizedLeaveType, startDate, endDate, daysRequested, cancellationToken);
 
         var leaveRequest = new LeaveRequest
         {
             Id = Guid.NewGuid(),
             EmployeeId = employeeId,
             CompanyId = companyId,
-            LeaveType = dto.LeaveType,
+            LeaveType = normalizedLeaveType,
             StartDate = startDate,
             EndDate = endDate,
             DaysRequested = daysRequested,
@@ -61,7 +63,7 @@ public class LeaveRequestService : ILeaveRequestService
         {
             leaveRequest.AttachmentUrl = await _fileService.SaveFileAsync(attachment.Value.Stream, attachment.Value.FileName, "leave-requests", cancellationToken);
         }
-        else if (dto.LeaveType == "Sick")
+        else if (normalizedLeaveType == "Sick")
         {
             throw new InvalidOperationException("attachment_required");
         }
@@ -79,6 +81,8 @@ public class LeaveRequestService : ILeaveRequestService
         InternalCreateLeaveRequestDto dto,
         CancellationToken cancellationToken = default)
     {
+        var normalizedLeaveType = NormalizeLeaveType(dto.LeaveType);
+
         if (!DateOnly.TryParse(dto.StartDate, out var startDate) || !DateOnly.TryParse(dto.EndDate, out var endDate))
             throw new InvalidOperationException("validation_error");
 
@@ -87,10 +91,10 @@ public class LeaveRequestService : ILeaveRequestService
 
         var daysRequested = endDate.DayNumber - startDate.DayNumber + 1;
 
-        await ValidateNoOverlapAndBalanceAsync(employeeId, dto.LeaveType, startDate, endDate, daysRequested, cancellationToken);
+        await ValidateNoOverlapAndBalanceAsync(employeeId, normalizedLeaveType, startDate, endDate, daysRequested, cancellationToken);
 
         // For Sick leave, the attachment_url must be provided (pre-uploaded via POST /api/leave-requests/attachments)
-        if (dto.LeaveType == "Sick" && string.IsNullOrWhiteSpace(dto.AttachmentUrl))
+        if (normalizedLeaveType == "Sick" && string.IsNullOrWhiteSpace(dto.AttachmentUrl))
             throw new InvalidOperationException("attachment_required");
 
         var leaveRequest = new LeaveRequest
@@ -98,7 +102,7 @@ public class LeaveRequestService : ILeaveRequestService
             Id             = Guid.NewGuid(),
             EmployeeId     = employeeId,
             CompanyId      = companyId,
-            LeaveType      = dto.LeaveType,
+            LeaveType      = normalizedLeaveType,
             StartDate      = startDate,
             EndDate        = endDate,
             DaysRequested  = daysRequested,
@@ -367,5 +371,15 @@ public class LeaveRequestService : ILeaveRequestService
                     throw new InvalidOperationException("insufficient_leave_balance");
             }
         }
+    }
+
+    private static string NormalizeLeaveType(string leaveType)
+    {
+        if (string.IsNullOrWhiteSpace(leaveType)) return leaveType;
+        var lower = leaveType.ToLowerInvariant();
+        if (lower.StartsWith("sick")) return "Sick";
+        if (lower.StartsWith("annual")) return "Annual";
+        if (lower.StartsWith("unpaid")) return "Unpaid";
+        return leaveType;
     }
 }
