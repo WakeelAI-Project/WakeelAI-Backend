@@ -17,7 +17,7 @@ public record InternalCreateLeaveRequestDto
     /// <summary>The type of leave being requested. Must be Annual, Sick, or Unpaid.</summary>
     [JsonPropertyName("leave_type")]
     [Required(ErrorMessage = "leave_type is required.")]
-    [RegularExpression("^(Annual|Sick|Unpaid)$", ErrorMessage = "leave_type must be Annual, Sick, or Unpaid.")]
+    [RegularExpression("(?i)^(Annual|Sick|Unpaid)(_leave|\\sleave|leave)?$", ErrorMessage = "leave_type must be Annual, Sick, or Unpaid.")]
     public string LeaveType { get; init; } = string.Empty;
 
     /// <summary>The start date of the leave period in yyyy-MM-dd format.</summary>

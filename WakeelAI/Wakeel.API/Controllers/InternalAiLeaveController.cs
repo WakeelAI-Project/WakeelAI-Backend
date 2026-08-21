@@ -88,12 +88,17 @@ public class InternalAiLeaveController : ControllerBase
 
         if (!string.IsNullOrWhiteSpace(dto.AttachmentUrl))
         {
-            var isValidAttachment = await _dbContext.LeaveAttachments
-                .AnyAsync(a => a.Url == dto.AttachmentUrl && a.CompanyId == companyId, cancellationToken);
-            if (!isValidAttachment)
+            var incomingUrlCleaned = dto.AttachmentUrl.Replace(".", "").Replace("-", "");
+            var validAttachment = await _dbContext.LeaveAttachments
+                .FirstOrDefaultAsync(a => a.Url.Replace(".", "").Replace("-", "") == incomingUrlCleaned && a.CompanyId == companyId, cancellationToken);
+            
+            if (validAttachment == null)
             {
                 return UnprocessableEntity(new ApiErrorResponse { Error = "invalid_attachment", Message = "Invalid attachment URL or cross-company request.", Status = 422 });
             }
+            
+            // Pass the uncorrupted URL down to the service
+            dto = dto with { AttachmentUrl = validAttachment.Url };
         }
 
         try
