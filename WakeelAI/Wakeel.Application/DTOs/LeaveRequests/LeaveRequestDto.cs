@@ -46,4 +46,10 @@ public class LeaveRequestDto
 
     [JsonPropertyName("reviewed_at")]
     public DateTime? ReviewedAt { get; set; }
+
+    [JsonPropertyName("reviewed_by_user_id")]
+    public Guid? ReviewedByUserId { get; set; }
+
+    [JsonPropertyName("reviewed_by_name")]
+    public string? ReviewedByName { get; set; }
 }

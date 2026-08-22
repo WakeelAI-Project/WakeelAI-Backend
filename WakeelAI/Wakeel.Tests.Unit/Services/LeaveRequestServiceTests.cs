@@ -25,6 +25,7 @@ public class LeaveRequestServiceTests
         var fileServiceMock = new Mock<IFileService>();
         var emailSenderMock = new Mock<IEmailSender>();
         var loggerMock = new Mock<ILogger<LeaveRequestService>>();
+        var auditLogServiceMock = new Mock<IAuditLogService>();
 
         var employeeId = Guid.NewGuid();
         var companyId = Guid.NewGuid();
@@ -43,7 +44,7 @@ public class LeaveRequestServiceTests
         unitOfWorkMock.Setup(u => u.LeaveRequests.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveRequest, bool>>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(existingRequest);
 
-        var service = new LeaveRequestService(unitOfWorkMock.Object, fileServiceMock.Object, emailSenderMock.Object, loggerMock.Object);
+        var service = new LeaveRequestService(unitOfWorkMock.Object, fileServiceMock.Object, emailSenderMock.Object, loggerMock.Object, auditLogServiceMock.Object);
 
         var dto = new CreateLeaveRequestDto
         {
@@ -65,6 +66,7 @@ public class LeaveRequestServiceTests
         var fileServiceMock = new Mock<IFileService>();
         var emailSenderMock = new Mock<IEmailSender>();
         var loggerMock = new Mock<ILogger<LeaveRequestService>>();
+        var auditLogServiceMock = new Mock<IAuditLogService>();
 
         var employeeId = Guid.NewGuid();
         var companyId = Guid.NewGuid();
@@ -94,7 +96,7 @@ public class LeaveRequestServiceTests
         unitOfWorkMock.Setup(u => u.LeaveRequests.FindAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveRequest, bool>>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(activeRequests);
 
-        var service = new LeaveRequestService(unitOfWorkMock.Object, fileServiceMock.Object, emailSenderMock.Object, loggerMock.Object);
+        var service = new LeaveRequestService(unitOfWorkMock.Object, fileServiceMock.Object, emailSenderMock.Object, loggerMock.Object, auditLogServiceMock.Object);
 
         var dto = new CreateLeaveRequestDto
         {
@@ -107,5 +109,55 @@ public class LeaveRequestServiceTests
         var act = async () => await service.CreateDraftAsync(employeeId, companyId, dto, null);
 
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("insufficient_leave_balance");
+    }
+
+    [Fact]
+    public async Task ReviewLeaveRequestAsync_UpdatesAuditLogs()
+    {
+        var unitOfWorkMock = new Mock<IUnitOfWork>();
+        var fileServiceMock = new Mock<IFileService>();
+        var emailSenderMock = new Mock<IEmailSender>();
+        var loggerMock = new Mock<ILogger<LeaveRequestService>>();
+        var auditLogServiceMock = new Mock<IAuditLogService>();
+
+        var employeeId = Guid.NewGuid();
+        var companyId = Guid.NewGuid();
+        var hrUserId = Guid.NewGuid();
+        var requestId = Guid.NewGuid();
+
+        var request = new LeaveRequest
+        {
+            Id = requestId,
+            CompanyId = companyId,
+            EmployeeId = employeeId,
+            Status = "Pending",
+            LeaveType = "Annual",
+            StartDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(1)),
+            EndDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(2)),
+            DaysRequested = 2
+        };
+
+        unitOfWorkMock.Setup(u => u.LeaveRequests.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveRequest, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(request);
+
+        var employeeUser = new User { Id = employeeId, FullName = "Employee Name" };
+        var hrUser = new User { Id = hrUserId, FullName = "HR Name" };
+
+        unitOfWorkMock.Setup(u => u.Users.GetByIdAsync(employeeId, It.IsAny<CancellationToken>())).ReturnsAsync(employeeUser);
+        unitOfWorkMock.Setup(u => u.Users.GetByIdAsync(hrUserId, It.IsAny<CancellationToken>())).ReturnsAsync(hrUser);
+
+        var service = new LeaveRequestService(unitOfWorkMock.Object, fileServiceMock.Object, emailSenderMock.Object, loggerMock.Object, auditLogServiceMock.Object);
+
+        var dto = new ReviewLeaveRequestDto { Status = "Rejected", HrNote = "Try again later" };
+
+        var result = await service.ReviewLeaveRequestAsync(requestId, companyId, hrUserId, dto);
+
+        result.Status.Should().Be("Rejected");
+        result.ReviewedByUserId.Should().Be(hrUserId);
+        result.ReviewedByName.Should().Be("HR Name");
+        result.ReviewedAt.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromSeconds(5));
+
+        unitOfWorkMock.Verify(u => u.LeaveRequests.Update(It.Is<LeaveRequest>(r => r.ReviewedByUserId == hrUserId && r.Status == "Rejected")), Times.Once);
+        unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 }

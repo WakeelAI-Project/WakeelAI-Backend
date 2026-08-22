@@ -72,24 +72,38 @@ public class QuestPdfGeneratorService : IPdfGeneratorService
                     page.ContentFromRightToLeft();
 
                 page.Header()
-                    .Text(documentTitle)
-                    .SemiBold().FontSize(20).FontColor(Colors.Blue.Darken2);
+                    .BorderBottom(1).BorderColor(Colors.Grey.Lighten2)
+                    .PaddingBottom(10)
+                    .Row(row =>
+                    {
+                        row.RelativeItem().Column(col =>
+                        {
+                            col.Item().Text(documentTitle)
+                                .SemiBold().FontSize(24).FontColor(Colors.Blue.Darken3);
+                            col.Item().Text($"Generated on {DateTime.UtcNow:MMMM dd, yyyy}")
+                                .FontSize(10).FontColor(Colors.Grey.Medium);
+                        });
+                    });
 
                 page.Content()
                     .PaddingVertical(1, Unit.Centimetre)
                     .Column(column =>
                     {
-                        column.Spacing(6);
+                        column.Spacing(8);
                         foreach (var block in blocks)
                             RenderBlock(column, block);
                     });
 
                 page.Footer()
+                    .BorderTop(1).BorderColor(Colors.Grey.Lighten2)
+                    .PaddingTop(5)
                     .AlignCenter()
                     .Text(x =>
                     {
                         x.Span("Page ");
                         x.CurrentPageNumber();
+                        x.Span(" of ");
+                        x.TotalPages();
                     });
             });
         })
@@ -109,27 +123,32 @@ public class QuestPdfGeneratorService : IPdfGeneratorService
             case MarkdownBlockType.Heading:
                 var fontSize = block.HeadingLevel switch
                 {
-                    1 => 18f,
-                    2 => 16f,
+                    1 => 22f,
+                    2 => 18f,
+                    3 => 16f,
                     _ => 14f
                 };
-                column.Item().PaddingTop(6).Text(text =>
+                column.Item().PaddingTop(8).PaddingBottom(4).Text(text =>
                 {
                     RenderInline(text, block.Text);
-                    text.DefaultTextStyle(s => s.SemiBold().FontSize(fontSize));
+                    text.DefaultTextStyle(s => s.SemiBold().FontSize(fontSize).FontColor(Colors.Blue.Darken4));
                 });
                 break;
 
             case MarkdownBlockType.Bullet:
                 column.Item().Row(row =>
                 {
-                    row.AutoItem().PaddingHorizontal(6).Text("\u2022");
-                    row.RelativeItem().Text(text => RenderInline(text, block.Text));
+                    row.AutoItem().PaddingHorizontal(10).Text("\u2022").FontSize(14).FontColor(Colors.Blue.Darken2);
+                    row.RelativeItem().Text(text => 
+                    { 
+                        text.Justify(); 
+                        RenderInline(text, block.Text); 
+                    });
                 });
                 break;
 
             case MarkdownBlockType.HorizontalRule:
-                column.Item().PaddingVertical(4).LineHorizontal(0.75f).LineColor(Colors.Grey.Lighten1);
+                column.Item().PaddingVertical(8).LineHorizontal(1).LineColor(Colors.Grey.Lighten2);
                 break;
 
             default:
