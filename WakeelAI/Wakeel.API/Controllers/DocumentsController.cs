@@ -31,7 +31,7 @@ public class DocumentsController : ControllerBase
         [FromQuery] string? order = null)
     {
         var userRole = User.FindFirstValue(ClaimTypes.Role);
-        var currentUserIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        var currentUserIdStr = User.FindFirst("user_id")?.Value;
 
         // Enforce employee own-only rule
         Guid? filterEmployeeId = employee_id;
@@ -61,7 +61,7 @@ public class DocumentsController : ControllerBase
         var document = await _documentService.GetDocumentByIdAsync(doc_id);
 
         var userRole = User.FindFirstValue(ClaimTypes.Role);
-        var currentUserIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        var currentUserIdStr = User.FindFirst("user_id")?.Value;
 
         // Enforce employee own-only rule
         if (userRole == "Employee")
