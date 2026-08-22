@@ -18,17 +18,20 @@ public class LeaveRequestService : ILeaveRequestService
     private readonly IFileService _fileService;
     private readonly IEmailSender _emailSender;
     private readonly ILogger<LeaveRequestService> _logger;
+    private readonly IAuditLogService _auditLogService;
 
     public LeaveRequestService(
         IUnitOfWork unitOfWork, 
         IFileService fileService, 
         IEmailSender emailSender, 
-        ILogger<LeaveRequestService> logger)
+        ILogger<LeaveRequestService> logger,
+        IAuditLogService auditLogService)
     {
         _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
         _fileService = fileService ?? throw new ArgumentNullException(nameof(fileService));
         _emailSender = emailSender ?? throw new ArgumentNullException(nameof(emailSender));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _auditLogService = auditLogService ?? throw new ArgumentNullException(nameof(auditLogService));
     }
 
     public async Task<LeaveRequestDto> CreateDraftAsync(Guid employeeId, Guid companyId, CreateLeaveRequestDto dto, (System.IO.Stream Stream, string FileName)? attachment, CancellationToken cancellationToken = default)
@@ -150,7 +153,9 @@ public class LeaveRequestService : ILeaveRequestService
             .Take(limit)
             .ToList();
 
-        var userIds = orderedRequests.Select(r => r.EmployeeId).Distinct().ToList();
+        var userIds = orderedRequests.Select(r => r.EmployeeId)
+            .Concat(orderedRequests.Where(r => r.ReviewedByUserId.HasValue).Select(r => r.ReviewedByUserId.Value))
+            .Distinct().ToList();
         var users = new Dictionary<Guid, string>();
         foreach (var id in userIds)
         {
@@ -158,7 +163,10 @@ public class LeaveRequestService : ILeaveRequestService
             if (u != null) users[id] = u.FullName;
         }
 
-        var dtos = orderedRequests.Select(lr => MapToDto(lr, users.GetValueOrDefault(lr.EmployeeId)));
+        var dtos = orderedRequests.Select(lr => MapToDto(
+            lr, 
+            users.GetValueOrDefault(lr.EmployeeId),
+            lr.ReviewedByUserId.HasValue ? users.GetValueOrDefault(lr.ReviewedByUserId.Value) : null));
 
         return (dtos, page, total);
     }
@@ -186,7 +194,10 @@ public class LeaveRequestService : ILeaveRequestService
         }
 
         var user = await _unitOfWork.Users.GetByIdAsync(request.EmployeeId, cancellationToken);
-        return MapToDto(request, user?.FullName);
+        var reviewerName = request.ReviewedByUserId.HasValue 
+            ? (await _unitOfWork.Users.GetByIdAsync(request.ReviewedByUserId.Value, cancellationToken))?.FullName 
+            : null;
+        return MapToDto(request, user?.FullName, reviewerName);
     }
 
     public async Task<LeaveRequestDto> SubmitDraftAsync(Guid requestId, Guid employeeId, Guid companyId, CancellationToken cancellationToken = default)
@@ -280,7 +291,14 @@ public class LeaveRequestService : ILeaveRequestService
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         var user = await _unitOfWork.Users.GetByIdAsync(request.EmployeeId, cancellationToken);
+        var hrUser = await _unitOfWork.Users.GetByIdAsync(hrUserId, cancellationToken);
         
+        await _auditLogService.LogActionAsync(
+            hrUserId,
+            dto.Status == "Approved" ? "LEAVE_APPROVED" : "LEAVE_REJECTED",
+            $"HR reviewed leave request for {user?.FullName ?? "Unknown Employee"}"
+        );
+
         if (user != null && !string.IsNullOrWhiteSpace(user.Email))
         {
             var subject = dto.Status == "Approved"
@@ -302,10 +320,10 @@ public class LeaveRequestService : ILeaveRequestService
             }
         }
 
-        return MapToDto(request, user?.FullName);
+        return MapToDto(request, user?.FullName, hrUser?.FullName);
     }
 
-    private static LeaveRequestDto MapToDto(LeaveRequest request, string? employeeName)
+    private static LeaveRequestDto MapToDto(LeaveRequest request, string? employeeName, string? reviewerName = null)
     {
         return new LeaveRequestDto
         {
@@ -322,7 +340,9 @@ public class LeaveRequestService : ILeaveRequestService
             AttachmentUrl = request.AttachmentUrl,
             CreatedAt = request.CreatedAt,
             SubmittedAt = request.SubmittedAt,
-            ReviewedAt = request.ReviewedAt
+            ReviewedAt = request.ReviewedAt,
+            ReviewedByUserId = request.ReviewedByUserId,
+            ReviewedByName = reviewerName
         };
     }
 

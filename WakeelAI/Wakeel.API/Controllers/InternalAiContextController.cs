@@ -65,6 +65,7 @@ public class InternalAiContextController : ControllerBase
             JobTitle = profile.JobTitle,
             EmploymentStatus = profile.User.IsActive ? "Active" : "Inactive",
             Salary = profile.Salary,
+            HireDate = profile.HireDate.ToString("yyyy-MM-dd"),
             LeaveBalance = new EmployeeLeaveBalancesDto
             {
                 Annual = annualBalance != null ? new LeaveBalanceContextDto

@@ -29,6 +29,9 @@ public class EmployeeContextResponse
     [JsonPropertyName("salary")]
     public decimal? Salary { get; set; }
 
+    [JsonPropertyName("hire_date")]
+    public string? HireDate { get; set; }
+
     [JsonPropertyName("leave_balance")]
     public EmployeeLeaveBalancesDto? LeaveBalance { get; set; }
 }
