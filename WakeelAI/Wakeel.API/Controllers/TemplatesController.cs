@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Security.Claims;
@@ -28,6 +29,14 @@ public class TemplatesController : ControllerBase
     private static readonly JsonSerializerOptions _jsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
+    };
+
+    // Mirrors the frontend's DOCUMENT_TEMPLATE_TYPES (template-placeholders.js) — the
+    // only document types the system actually supports today. Used to validate an
+    // explicit clause_type override on clause generation.
+    private static readonly HashSet<string> _supportedDocumentTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Contract", "Warning_Letter", "Termination_Letter"
     };
 
     public TemplatesController(
@@ -128,6 +137,10 @@ public class TemplatesController : ControllerBase
         if (!request.IncludeLaborLaw && !request.IncludeCompanyPolicy)
             return BadRequest(new ApiErrorResponse { Error = "validation_error", Message = "At least one of include_labor_law or include_company_policy must be true.", Status = 400 });
 
+        var clauseType = request.ClauseType?.Trim();
+        if (!string.IsNullOrEmpty(clauseType) && !_supportedDocumentTypes.Contains(clauseType))
+            return BadRequest(new ApiErrorResponse { Error = "validation_error", Message = "clause_type must be one of: Contract, Warning_Letter, Termination_Letter.", Status = 400 });
+
         // Identity comes ONLY from the JWT — never from the request body.
         var companyIdClaim = User.FindFirstValue("company_id");
         var userIdClaim    = User.FindFirstValue("user_id");
@@ -151,7 +164,7 @@ public class TemplatesController : ControllerBase
         var nodePayload = new
         {
             templateId           = template.Id.ToString(),
-            documentType         = template.DocumentType,
+            documentType         = string.IsNullOrEmpty(clauseType) ? template.DocumentType : clauseType,
             templateName         = template.Name,
             companyId            = companyId.ToString(),   // trusted: from JWT
             language             = language,
