@@ -12,9 +12,9 @@ public interface ITemplateService
 
     Task<TemplateDto> GetTemplateByIdAsync(Guid id);
 
-    Task<TemplateDto> CreateTemplateAsync(CreateTemplateRequest request);
+    Task<TemplateDto> CreateTemplateAsync(Guid actorUserId, CreateTemplateRequest request);
 
-    Task<TemplateDto> UpdateTemplateAsync(Guid id, UpdateTemplateRequest request);
+    Task<TemplateDto> UpdateTemplateAsync(Guid actorUserId, Guid id, UpdateTemplateRequest request);
 
-    Task DeleteTemplateAsync(Guid id);
+    Task DeleteTemplateAsync(Guid actorUserId, Guid id);
 }

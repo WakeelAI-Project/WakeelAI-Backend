@@ -836,7 +836,7 @@ public class EmployeeServiceTests
             .ReturnsAsync((EmployeeProfile?)null);
 
         // Act
-        var result = await _sut.UpdateEmployeeAsync(Guid.NewGuid(), Guid.NewGuid(), new UpdateEmployeeRequest());
+        var result = await _sut.UpdateEmployeeAsync(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), new UpdateEmployeeRequest());
 
         // Assert
         result.Should().BeNull();
@@ -853,7 +853,7 @@ public class EmployeeServiceTests
         _userRepositoryMock.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         // Act
-        var result = await _sut.UpdateEmployeeAsync(otherCompanyId, profile.UserId, new UpdateEmployeeRequest());
+        var result = await _sut.UpdateEmployeeAsync(otherCompanyId, Guid.NewGuid(), profile.UserId, new UpdateEmployeeRequest());
 
         // Assert
         result.Should().BeNull();
@@ -871,7 +871,7 @@ public class EmployeeServiceTests
         var request = new UpdateEmployeeRequest { HireDate = DateTime.UtcNow.AddDays(1) };
 
         // Act
-        var act = () => _sut.UpdateEmployeeAsync(user.CompanyId, profile.UserId, request);
+        var act = () => _sut.UpdateEmployeeAsync(user.CompanyId, Guid.NewGuid(), profile.UserId, request);
 
         // Assert
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("hire_date_in_future");
@@ -896,7 +896,7 @@ public class EmployeeServiceTests
         };
 
         // Act
-        var result = await _sut.UpdateEmployeeAsync(user.CompanyId, profile.UserId, request);
+        var result = await _sut.UpdateEmployeeAsync(user.CompanyId, Guid.NewGuid(), profile.UserId, request);
 
         // Assert
         result.Should().NotBeNull();
@@ -925,7 +925,7 @@ public class EmployeeServiceTests
         var request = new UpdateEmployeeRequest { DepartmentId = newDepartmentId };
 
         // Act
-        var result = await _sut.UpdateEmployeeAsync(user.CompanyId, profile.UserId, request);
+        var result = await _sut.UpdateEmployeeAsync(user.CompanyId, Guid.NewGuid(), profile.UserId, request);
 
         // Assert
         result.Should().NotBeNull();
@@ -948,7 +948,7 @@ public class EmployeeServiceTests
         var request = new UpdateEmployeeRequest { DepartmentId = unknownDepartmentId };
 
         // Act
-        var act = () => _sut.UpdateEmployeeAsync(user.CompanyId, profile.UserId, request);
+        var act = () => _sut.UpdateEmployeeAsync(user.CompanyId, Guid.NewGuid(), profile.UserId, request);
 
         // Assert
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("department_not_found");
@@ -970,7 +970,7 @@ public class EmployeeServiceTests
         var request = new UpdateEmployeeRequest { DepartmentId = otherCompanyDepartmentId };
 
         // Act
-        var act = () => _sut.UpdateEmployeeAsync(user.CompanyId, profile.UserId, request);
+        var act = () => _sut.UpdateEmployeeAsync(user.CompanyId, Guid.NewGuid(), profile.UserId, request);
 
         // Assert
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("department_not_found");
@@ -990,7 +990,7 @@ public class EmployeeServiceTests
             .ReturnsAsync((EmployeeProfile?)null);
 
         // Act
-        var result = await _sut.DeactivateEmployeeAsync(Guid.NewGuid(), Guid.NewGuid());
+        var result = await _sut.DeactivateEmployeeAsync(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
 
         // Assert
         result.Should().BeFalse();
@@ -1007,7 +1007,7 @@ public class EmployeeServiceTests
         _userRepositoryMock.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         // Act
-        var result = await _sut.DeactivateEmployeeAsync(Guid.NewGuid(), profile.UserId);
+        var result = await _sut.DeactivateEmployeeAsync(Guid.NewGuid(), Guid.NewGuid(), profile.UserId);
 
         // Assert
         result.Should().BeFalse();
@@ -1028,7 +1028,7 @@ public class EmployeeServiceTests
             .ReturnsAsync(new List<RefreshToken> { activeToken });
 
         // Act
-        var result = await _sut.DeactivateEmployeeAsync(user.CompanyId, profile.UserId);
+        var result = await _sut.DeactivateEmployeeAsync(user.CompanyId, Guid.NewGuid(), profile.UserId);
 
         // Assert
         result.Should().BeTrue();
@@ -1051,7 +1051,7 @@ public class EmployeeServiceTests
         _userRepositoryMock.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         // Act
-        var result = await _sut.DeactivateEmployeeAsync(user.CompanyId, profile.UserId);
+        var result = await _sut.DeactivateEmployeeAsync(user.CompanyId, Guid.NewGuid(), profile.UserId);
 
         // Assert
         result.Should().BeTrue();

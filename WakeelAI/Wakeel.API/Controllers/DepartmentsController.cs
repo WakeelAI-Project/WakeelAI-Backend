@@ -36,10 +36,11 @@ public class DepartmentsController(IDepartmentService departmentService) : Contr
             });
 
         var companyIdClaim = User.FindFirst("company_id")?.Value;
-        if (!Guid.TryParse(companyIdClaim, out var companyId))
+        var userIdClaim = User.FindFirst("user_id")?.Value;
+        if (!Guid.TryParse(companyIdClaim, out var companyId) || !Guid.TryParse(userIdClaim, out var actorUserId))
             return Forbid();
 
-        var result = await departmentService.CreateAsync(companyId, request, cancellationToken);
+        var result = await departmentService.CreateAsync(companyId, actorUserId, request, cancellationToken);
         return Created(string.Empty, result);
     }
 
@@ -103,10 +104,11 @@ public class DepartmentsController(IDepartmentService departmentService) : Contr
     public async Task<IActionResult> Update([FromRoute] Guid departmentId, [FromBody] UpdateDepartmentRequest request, CancellationToken cancellationToken)
     {
         var companyIdClaim = User.FindFirst("company_id")?.Value;
-        if (!Guid.TryParse(companyIdClaim, out var companyId))
+        var userIdClaim = User.FindFirst("user_id")?.Value;
+        if (!Guid.TryParse(companyIdClaim, out var companyId) || !Guid.TryParse(userIdClaim, out var actorUserId))
             return Forbid();
 
-        var updated = await departmentService.UpdateAsync(companyId, departmentId, request, cancellationToken);
+        var updated = await departmentService.UpdateAsync(companyId, actorUserId, departmentId, request, cancellationToken);
         if (updated is null)
             return NotFound(new ApiErrorResponse
             {
@@ -130,10 +132,11 @@ public class DepartmentsController(IDepartmentService departmentService) : Contr
     public async Task<IActionResult> Delete([FromRoute] Guid departmentId, CancellationToken cancellationToken)
     {
         var companyIdClaim = User.FindFirst("company_id")?.Value;
-        if (!Guid.TryParse(companyIdClaim, out var companyId))
+        var userIdClaim = User.FindFirst("user_id")?.Value;
+        if (!Guid.TryParse(companyIdClaim, out var companyId) || !Guid.TryParse(userIdClaim, out var actorUserId))
             return Forbid();
 
-        var (success, errorCode) = await departmentService.DeleteAsync(companyId, departmentId, cancellationToken);
+        var (success, errorCode) = await departmentService.DeleteAsync(companyId, actorUserId, departmentId, cancellationToken);
 
         if (!success)
         {

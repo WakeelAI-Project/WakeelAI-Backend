@@ -31,6 +31,7 @@ public class CompanyController : ControllerBase
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IConfiguration _configuration;
     private readonly ILogger<CompanyController> _logger;
+    private readonly IAuditLogService _auditLogService;
 
     private static readonly string[] AllowedLogoExtensions = { ".jpg", ".jpeg", ".png", ".webp" };
     private const long MaxLogoSizeBytes = 5 * 1024 * 1024;   // 5 MB
@@ -42,7 +43,8 @@ public class CompanyController : ControllerBase
         ApplicationDbContext dbContext,
         IHttpClientFactory httpClientFactory,
         IConfiguration configuration,
-        ILogger<CompanyController> logger)
+        ILogger<CompanyController> logger,
+        IAuditLogService auditLogService)
     {
         _companyService    = companyService;
         _fileService       = fileService;
@@ -50,6 +52,7 @@ public class CompanyController : ControllerBase
         _httpClientFactory = httpClientFactory;
         _configuration     = configuration;
         _logger            = logger;
+        _auditLogService   = auditLogService;
     }
 
     [Authorize(Roles = "Company_Owner,HR_Manager")]
@@ -79,7 +82,8 @@ public class CompanyController : ControllerBase
             return BadRequest(new ApiErrorResponse { Error = "validation_error", Message = "Invalid payload.", Status = 400 });
 
         var companyIdClaim = User.FindFirst("company_id")?.Value;
-        if (!Guid.TryParse(companyIdClaim, out var companyId))
+        var userIdClaim = User.FindFirst("user_id")?.Value;
+        if (!Guid.TryParse(companyIdClaim, out var companyId) || !Guid.TryParse(userIdClaim, out var actorUserId))
             return Forbid();
 
         try
@@ -114,7 +118,7 @@ public class CompanyController : ControllerBase
                 IsWorkingHoursProvided = formKeys.Contains("working_hours") || formKeys.Contains("workinghours")
             };
 
-            var updatedProfile = await _companyService.UpdateCompanyProfileAsync(companyId, dtoToUpdate, logoUrl, cancellationToken);
+            var updatedProfile = await _companyService.UpdateCompanyProfileAsync(companyId, actorUserId, dtoToUpdate, logoUrl, cancellationToken);
             return Ok(updatedProfile);
         }
         catch (InvalidOperationException ex) when (ex.Message == "company_not_found")
@@ -202,6 +206,15 @@ public class CompanyController : ControllerBase
         _logger.LogInformation(
             "CompanyHandbook saved: Id={HandbookId}, CompanyId={CompanyId}, Title={Title}",
             handbookId, companyId, title);
+
+        try
+        {
+            await _auditLogService.LogActionAsync(userId, "HANDBOOK_UPLOADED", $"Uploaded policy handbook \"{title.Trim()}\".", companyId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to write HANDBOOK_UPLOADED audit entry for HandbookId={HandbookId}.", handbookId);
+        }
 
         // -------- Forward to Node.js RAG ingestion (best-effort) --------
         await ForwardToRagIngestionAsync(handbookId, companyId, userId, role, title.Trim(), extractedText);

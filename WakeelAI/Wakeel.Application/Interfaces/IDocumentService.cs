@@ -14,7 +14,7 @@ public interface IDocumentService
 
     Task UpdateDocumentAsync(Guid documentId, UpdateDocumentRequest request);
 
-    Task FinalizeDocumentAsync(Guid documentId);
+    Task FinalizeDocumentAsync(Guid actorUserId, Guid documentId);
 
-    Task SendEmailAsync(Guid documentId, SendEmailRequest request);
+    Task SendEmailAsync(Guid actorUserId, Guid documentId, SendEmailRequest request);
 }

@@ -18,7 +18,7 @@ public interface IDepartmentService
     /// <param name="request">The department creation request.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     /// <returns>The created department response.</returns>
-    Task<DepartmentResponse> CreateAsync(Guid companyId, CreateDepartmentRequest request, CancellationToken cancellationToken = default);
+    Task<DepartmentResponse> CreateAsync(Guid companyId, Guid actorUserId, CreateDepartmentRequest request, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Lists all departments for a company with pagination.
@@ -47,7 +47,7 @@ public interface IDepartmentService
     /// <param name="request">The department update request.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     /// <returns>The updated department response, or null if not found or deleted.</returns>
-    Task<DepartmentResponse?> UpdateAsync(Guid companyId, Guid departmentId, UpdateDepartmentRequest request, CancellationToken cancellationToken = default);
+    Task<DepartmentResponse?> UpdateAsync(Guid companyId, Guid actorUserId, Guid departmentId, UpdateDepartmentRequest request, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Soft-deletes a department.
@@ -60,5 +60,5 @@ public interface IDepartmentService
     /// - Success: Whether the deletion succeeded.
     /// - ErrorCode: An error code if deletion failed (e.g., "department_in_use", "department_not_found"), null if successful.
     /// </returns>
-    Task<(bool Success, string? ErrorCode)> DeleteAsync(Guid companyId, Guid departmentId, CancellationToken cancellationToken = default);
+    Task<(bool Success, string? ErrorCode)> DeleteAsync(Guid companyId, Guid actorUserId, Guid departmentId, CancellationToken cancellationToken = default);
 }

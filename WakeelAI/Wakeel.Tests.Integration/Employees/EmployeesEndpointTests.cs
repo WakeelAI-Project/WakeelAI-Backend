@@ -40,6 +40,10 @@ public class EmployeesEndpointTests : IClassFixture<CustomWebApplicationFactory>
         {
             var userIds = await db.Users.Where(u => u.CompanyId == companyId).Select(u => u.Id).ToListAsync();
 
+            // FIX-12: several employee/dashboard operations now write AuditLog rows
+            // (EMPLOYEE_CREATED, EMPLOYEE_UPDATED, EMPLOYEE_DELETED, ...) referencing the
+            // acting user - clean those up before deleting Users or the FK blocks it.
+            db.AuditLogs.RemoveRange(db.AuditLogs.Where(a => a.CompanyId == companyId));
             db.LeaveBalances.RemoveRange(db.LeaveBalances.Where(lb => userIds.Contains(lb.EmployeeId)));
             db.EmployeeProfiles.RemoveRange(db.EmployeeProfiles.Where(ep => userIds.Contains(ep.UserId)));
             db.RefreshTokens.RemoveRange(db.RefreshTokens.Where(rt => userIds.Contains(rt.UserId)));

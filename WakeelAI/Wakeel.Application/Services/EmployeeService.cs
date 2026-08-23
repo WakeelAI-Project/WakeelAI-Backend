@@ -41,6 +41,19 @@ public class EmployeeService : IEmployeeService
         _auditLogService = auditLogService ?? throw new ArgumentNullException(nameof(auditLogService));
     }
 
+    /// <summary>Writes an audit entry without letting a failure affect the caller's result.</summary>
+    private async Task TryLogAuditAsync(Guid? userId, string action, string details)
+    {
+        try
+        {
+            await _auditLogService.LogActionAsync(userId, action, details);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to write {Action} audit entry.", action);
+        }
+    }
+
     public async Task<CreateEmployeeResponse> CreateEmployeeAsync(Guid actorUserId, Guid companyId, CreateEmployeeRequest request, CancellationToken cancellationToken = default)
     {
         if (IsInFuture(request.HireDate))
@@ -96,6 +109,8 @@ public class EmployeeService : IEmployeeService
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         await _leaveBalanceProvisioningService.EnsureYearAsync(profile.UserId, profile.HireDate.Year, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        await TryLogAuditAsync(actorUserId, "EMPLOYEE_CREATED", $"Created employee \"{user.FullName}\" ({user.Email}).");
 
         // send email with credentials
         var subject = "You're added to Wakeel as an employee";
@@ -243,18 +258,11 @@ public class EmployeeService : IEmployeeService
         _unitOfWork.LeaveBalances.Update(balance);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        try
-        {
-            await _auditLogService.LogActionAsync(
-                actorUserId,
-                "LEAVE_BALANCE_ADJUSTED",
-                $"HR set {leaveType} leave balance for {user.FullName} ({request.Year}) to " +
-                (request.TotalDays.HasValue ? $"{request.TotalDays.Value} days" : "uncapped"));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to write LEAVE_BALANCE_ADJUSTED audit entry for employee {RecordId}", recordId);
-        }
+        await TryLogAuditAsync(
+            actorUserId,
+            "LEAVE_BALANCE_ADJUSTED",
+            $"HR set {leaveType} leave balance for {user.FullName} ({request.Year}) to " +
+            (request.TotalDays.HasValue ? $"{request.TotalDays.Value} days" : "uncapped"));
 
         return await GetEmployeeAsync(companyId, recordId, cancellationToken);
     }
@@ -317,7 +325,7 @@ public class EmployeeService : IEmployeeService
         };
     }
 
-    public async Task<EmployeeDetailResponse?> UpdateEmployeeAsync(Guid companyId, Guid recordId, UpdateEmployeeRequest request, CancellationToken cancellationToken = default)
+    public async Task<EmployeeDetailResponse?> UpdateEmployeeAsync(Guid companyId, Guid actorUserId, Guid recordId, UpdateEmployeeRequest request, CancellationToken cancellationToken = default)
     {
         var profile = await _resourceLoader.GetEmployeeProfileAsync(recordId, cancellationToken);
         if (profile is null)
@@ -354,6 +362,8 @@ public class EmployeeService : IEmployeeService
         _unitOfWork.EmployeeProfiles.Update(profile);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
+        await TryLogAuditAsync(actorUserId, "EMPLOYEE_UPDATED", $"Updated employee \"{user.FullName}\".");
+
         department ??= await _unitOfWork.Departments.GetByIdAsync(profile.DepartmentId, cancellationToken);
 
         return new EmployeeDetailResponse
@@ -374,7 +384,7 @@ public class EmployeeService : IEmployeeService
         };
     }
 
-    public async Task<bool> DeactivateEmployeeAsync(Guid companyId, Guid recordId, CancellationToken cancellationToken = default)
+    public async Task<bool> DeactivateEmployeeAsync(Guid companyId, Guid actorUserId, Guid recordId, CancellationToken cancellationToken = default)
     {
         var profile = await _resourceLoader.GetEmployeeProfileAsync(recordId, cancellationToken);
         if (profile is null)
@@ -399,6 +409,9 @@ public class EmployeeService : IEmployeeService
         }
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        await TryLogAuditAsync(actorUserId, "EMPLOYEE_DELETED", $"Deactivated employee \"{user.FullName}\".");
+
         return true;
     }
 

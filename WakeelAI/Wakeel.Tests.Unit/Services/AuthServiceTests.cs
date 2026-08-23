@@ -28,6 +28,7 @@ public class AuthServiceTests
     private readonly Mock<IRefreshTokenHasher> _refreshTokenHasherMock = new();
     private readonly Mock<IEmailSender> _emailSenderMock = new();
     private readonly Mock<ILogger<AuthService>> _loggerMock = new();
+    private readonly Mock<IAuditLogService> _auditLogServiceMock = new();
 
     private readonly AuthService _sut; // "System Under Test"
 
@@ -47,7 +48,8 @@ public class AuthServiceTests
             _tokenGeneratorMock.Object,
             _refreshTokenHasherMock.Object,
             _emailSenderMock.Object,
-            _loggerMock.Object
+            _loggerMock.Object,
+            _auditLogServiceMock.Object
         );
     }
 

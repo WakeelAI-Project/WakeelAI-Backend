@@ -82,10 +82,12 @@ public class TemplatesController : ControllerBase
         }
     }
 
+    private Guid GetActorUserId() => Guid.Parse(User.FindFirst("user_id")!.Value);
+
     [HttpPost]
     public async Task<IActionResult> CreateTemplate([FromBody] CreateTemplateRequest request)
     {
-        var template = await _templateService.CreateTemplateAsync(request);
+        var template = await _templateService.CreateTemplateAsync(GetActorUserId(), request);
         return CreatedAtAction(nameof(GetTemplate), new { id = template.Id }, template);
     }
 
@@ -94,7 +96,7 @@ public class TemplatesController : ControllerBase
     {
         try
         {
-            var template = await _templateService.UpdateTemplateAsync(id, request);
+            var template = await _templateService.UpdateTemplateAsync(GetActorUserId(), id, request);
             return Ok(template);
         }
         catch (InvalidOperationException ex) when (ex.Message == "template_not_found")
@@ -108,7 +110,7 @@ public class TemplatesController : ControllerBase
     {
         try
         {
-            await _templateService.DeleteTemplateAsync(id);
+            await _templateService.DeleteTemplateAsync(GetActorUserId(), id);
             return NoContent();
         }
         catch (InvalidOperationException ex) when (ex.Message == "template_not_found")

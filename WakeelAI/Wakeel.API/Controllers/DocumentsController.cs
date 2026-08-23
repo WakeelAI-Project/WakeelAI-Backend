@@ -87,7 +87,8 @@ public class DocumentsController : ControllerBase
     [Authorize(Roles = "HR_Manager")]
     public async Task<IActionResult> FinalizeDocument(Guid doc_id)
     {
-        await _documentService.FinalizeDocumentAsync(doc_id);
+        var actorUserId = Guid.Parse(User.FindFirst("user_id")!.Value);
+        await _documentService.FinalizeDocumentAsync(actorUserId, doc_id);
         return NoContent();
     }
 
@@ -95,7 +96,8 @@ public class DocumentsController : ControllerBase
     [Authorize(Roles = "HR_Manager")]
     public async Task<IActionResult> SendEmail(Guid doc_id, [FromBody] SendEmailRequest request)
     {
-        await _documentService.SendEmailAsync(doc_id, request);
+        var actorUserId = Guid.Parse(User.FindFirst("user_id")!.Value);
+        await _documentService.SendEmailAsync(actorUserId, doc_id, request);
         return NoContent();
     }
 }

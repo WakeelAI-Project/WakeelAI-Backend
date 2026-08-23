@@ -64,12 +64,13 @@ public class EmployeesController(IEmployeeService employeeService, IFileService 
             return BadRequest(new ApiErrorResponse { Error = "validation_error", Message = "Invalid payload.", Status = 400 });
 
         var companyIdClaim = User.FindFirst("company_id")?.Value;
-        if (!Guid.TryParse(companyIdClaim, out var companyId))
+        var actorUserIdClaim = User.FindFirst("user_id")?.Value;
+        if (!Guid.TryParse(companyIdClaim, out var companyId) || !Guid.TryParse(actorUserIdClaim, out var actorUserId))
             return Forbid();
 
         try
         {
-            var updated = await employeeService.UpdateEmployeeAsync(companyId, recordId, request, cancellationToken);
+            var updated = await employeeService.UpdateEmployeeAsync(companyId, actorUserId, recordId, request, cancellationToken);
             if (updated is null)
                 return NotFound(new ApiErrorResponse { Error = "employee_not_found", Message = "Employee not found.", Status = 404 });
 
@@ -237,10 +238,11 @@ public class EmployeesController(IEmployeeService employeeService, IFileService 
     public async Task<IActionResult> Deactivate([FromRoute] Guid recordId, CancellationToken cancellationToken)
     {
         var companyIdClaim = User.FindFirst("company_id")?.Value;
-        if (!Guid.TryParse(companyIdClaim, out var companyId))
+        var actorUserIdClaim = User.FindFirst("user_id")?.Value;
+        if (!Guid.TryParse(companyIdClaim, out var companyId) || !Guid.TryParse(actorUserIdClaim, out var actorUserId))
             return Forbid();
 
-        var deactivated = await employeeService.DeactivateEmployeeAsync(companyId, recordId, cancellationToken);
+        var deactivated = await employeeService.DeactivateEmployeeAsync(companyId, actorUserId, recordId, cancellationToken);
         if (!deactivated)
             return NotFound(new ApiErrorResponse { Error = "employee_not_found", Message = "Employee not found.", Status = 404 });
 

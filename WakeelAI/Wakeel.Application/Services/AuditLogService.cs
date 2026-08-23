@@ -81,15 +81,16 @@ public class AuditLogService : IAuditLogService
         return (logs, total);
     }
 
-    public async Task LogActionAsync(Guid? userId, string action, string details)
+    public async Task LogActionAsync(Guid? userId, string action, string details, Guid? companyId = null)
     {
-        if (!_currentTenantService.HasTenant)
+        var resolvedCompanyId = companyId ?? _currentTenantService.CompanyId;
+        if (resolvedCompanyId is null)
             return;
 
         var auditLog = new AuditLog
         {
             Id = Guid.NewGuid(),
-            CompanyId = _currentTenantService.CompanyId!.Value,
+            CompanyId = resolvedCompanyId.Value,
             UserId = userId,
             Action = action,
             Details = details,

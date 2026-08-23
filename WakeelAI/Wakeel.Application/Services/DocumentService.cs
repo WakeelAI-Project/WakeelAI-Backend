@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Wakeel.Application.DTOs.Documents;
 using Wakeel.Application.Interfaces;
 using Wakeel.Application.Interfaces.Repositories;
@@ -17,19 +18,38 @@ public class DocumentService : IDocumentService
     private readonly IPdfGeneratorService _pdfGeneratorService;
     private readonly IEmailSender _emailSender;
     private readonly IPublicUrlBuilder _publicUrlBuilder;
+    private readonly IAuditLogService _auditLogService;
+    private readonly ILogger<DocumentService> _logger;
 
     public DocumentService(
         IUnitOfWork unitOfWork,
         ICurrentTenantService currentTenantService,
         IPdfGeneratorService pdfGeneratorService,
         IEmailSender emailSender,
-        IPublicUrlBuilder publicUrlBuilder)
+        IPublicUrlBuilder publicUrlBuilder,
+        IAuditLogService auditLogService,
+        ILogger<DocumentService> logger)
     {
         _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
         _currentTenantService = currentTenantService ?? throw new ArgumentNullException(nameof(currentTenantService));
         _pdfGeneratorService = pdfGeneratorService ?? throw new ArgumentNullException(nameof(pdfGeneratorService));
         _emailSender = emailSender ?? throw new ArgumentNullException(nameof(emailSender));
         _publicUrlBuilder = publicUrlBuilder ?? throw new ArgumentNullException(nameof(publicUrlBuilder));
+        _auditLogService = auditLogService ?? throw new ArgumentNullException(nameof(auditLogService));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    }
+
+    /// <summary>Writes an audit entry without letting a failure affect the caller's result.</summary>
+    private async Task TryLogAuditAsync(Guid? userId, string action, string details)
+    {
+        try
+        {
+            await _auditLogService.LogActionAsync(userId, action, details);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to write {Action} audit entry.", action);
+        }
     }
 
     public async Task<(IEnumerable<DocumentSummary> Data, int Total)> GetDocumentsAsync(
@@ -97,7 +117,7 @@ public class DocumentService : IDocumentService
         await _unitOfWork.SaveChangesAsync();
     }
 
-    public async Task FinalizeDocumentAsync(Guid documentId)
+    public async Task FinalizeDocumentAsync(Guid actorUserId, Guid documentId)
     {
         var document = await _unitOfWork.GeneratedDocuments.GetByIdAsync(documentId);
 
@@ -120,9 +140,11 @@ public class DocumentService : IDocumentService
 
         _unitOfWork.GeneratedDocuments.Update(document);
         await _unitOfWork.SaveChangesAsync();
+
+        await TryLogAuditAsync(actorUserId, "DOCUMENT_FINALIZED", $"Finalized document \"{document.Title}\".");
     }
 
-    public async Task SendEmailAsync(Guid documentId, SendEmailRequest request)
+    public async Task SendEmailAsync(Guid actorUserId, Guid documentId, SendEmailRequest request)
     {
         var document = await _unitOfWork.GeneratedDocuments.GetByIdAsync(documentId);
 
@@ -161,5 +183,7 @@ public class DocumentService : IDocumentService
         document.EmailSentAt = DateTime.UtcNow;
         _unitOfWork.GeneratedDocuments.Update(document);
         await _unitOfWork.SaveChangesAsync();
+
+        await TryLogAuditAsync(actorUserId, "DOCUMENT_EMAILED", $"Emailed document \"{document.Title}\".");
     }
 }

@@ -24,6 +24,7 @@ public class AuthService : IAuthService
     private readonly IRefreshTokenHasher _refreshTokenHasher;
     private readonly IEmailSender _emailSender;
     private readonly ILogger<AuthService> _logger;
+    private readonly IAuditLogService _auditLogService;
 
     public AuthService(
         IUnitOfWork unitOfWork,
@@ -31,7 +32,8 @@ public class AuthService : IAuthService
         IJwtTokenGenerator tokenGenerator,
         IRefreshTokenHasher refreshTokenHasher,
         IEmailSender emailSender,
-        ILogger<AuthService> logger
+        ILogger<AuthService> logger,
+        IAuditLogService auditLogService
     )
     {
         _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
@@ -40,7 +42,22 @@ public class AuthService : IAuthService
         _refreshTokenHasher = refreshTokenHasher ?? throw new ArgumentNullException(nameof(refreshTokenHasher));
         _emailSender = emailSender ?? throw new ArgumentNullException(nameof(emailSender));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _auditLogService = auditLogService ?? throw new ArgumentNullException(nameof(auditLogService));
     }
+
+    /// <summary>Writes an audit entry without letting a failure affect the caller's result.</summary>
+    private async Task TryLogAuditAsync(Guid? userId, string action, string details, Guid? companyId = null)
+    {
+        try
+        {
+            await _auditLogService.LogActionAsync(userId, action, details, companyId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to write {Action} audit entry.", action);
+        }
+    }
+
     public async Task<(bool IsSuccess, string? ErrorMessage)> ChangePasswordAsync(Guid userId, ChangePasswordRequest request, CancellationToken cancellationToken = default)
     {
         var user = await _unitOfWork.Users.GetByIdAsync(userId, cancellationToken);
@@ -54,6 +71,8 @@ public class AuthService : IAuthService
         user.MustChangePassword = false;
         _unitOfWork.Users.Update(user);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        await TryLogAuditAsync(userId, "PASSWORD_CHANGED", "User changed their own password.", user.CompanyId);
 
         return (true, null);
     }
@@ -124,6 +143,10 @@ public class AuthService : IAuthService
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             _logger.LogInformation("Company registration completed. CompanyId: {CompanyId}, UserId: {UserId}", company.Id, user.Id);
+
+            // No tenant context exists yet on this anonymous request - the company is
+            // being created in this very call - so the company id is passed explicitly.
+            await TryLogAuditAsync(user.Id, "COMPANY_REGISTERED", $"Company \"{company.Name}\" registered.", company.Id);
 
             var response = new RegisterCompanyResponse
             {
@@ -390,6 +413,10 @@ public class AuthService : IAuthService
             }
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            // Anonymous flow - no tenant context on this request, so the company is
+            // passed explicitly.
+            await TryLogAuditAsync(user.Id, "PASSWORD_RESET", "User reset their password via the forgot-password flow.", user.CompanyId);
 
             _logger.LogInformation("Password reset via OTP completed for UserId: {UserId}", user.Id);
             return (true, null, AuthResultStatus.Success);

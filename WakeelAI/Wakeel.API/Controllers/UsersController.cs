@@ -75,10 +75,11 @@ public class UsersController(IUserService userService) : ControllerBase
     public async Task<IActionResult> UpdateStatus([FromRoute] Guid userId, [FromBody] UpdateUserStatusRequest request, CancellationToken cancellationToken)
     {
         var companyIdClaim = User.FindFirst("company_id")?.Value;
-        if (!Guid.TryParse(companyIdClaim, out var companyId))
+        var actorUserIdClaim = User.FindFirst("user_id")?.Value;
+        if (!Guid.TryParse(companyIdClaim, out var companyId) || !Guid.TryParse(actorUserIdClaim, out var actorUserId))
             return Forbid();
 
-        var updated = await userService.UpdateUserStatusAsync(companyId, userId, request.IsActive, cancellationToken);
+        var updated = await userService.UpdateUserStatusAsync(companyId, actorUserId, userId, request.IsActive, cancellationToken);
         if (updated is null)
             return NotFound(new ApiErrorResponse { Error = "user_not_found", Message = "User not found.", Status = 404 });
 

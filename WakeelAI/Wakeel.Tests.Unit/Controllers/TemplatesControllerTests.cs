@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
@@ -19,6 +20,7 @@ public class TemplatesControllerTests
 {
     private readonly Mock<ITemplateService> _templateServiceMock;
     private readonly TemplatesController _controller;
+    private readonly Guid _actorUserId = Guid.NewGuid();
 
     public TemplatesControllerTests()
     {
@@ -38,7 +40,10 @@ public class TemplatesControllerTests
             configuration,
             NullLogger<TemplatesController>.Instance);
 
-        var httpContext = new DefaultHttpContext();
+        var httpContext = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim("user_id", _actorUserId.ToString()) }, "TestAuth"))
+        };
         _controller.ControllerContext = new ControllerContext
         {
             HttpContext = httpContext
@@ -67,7 +72,7 @@ public class TemplatesControllerTests
         var dto = new CreateTemplateRequest { Name = "Test", DocumentType = "TEST", ContentTemplate = "test" };
         var created = new TemplateDto { Id = Guid.NewGuid(), Name = "Test", DocumentType = "TEST", IsActive = true };
 
-        _templateServiceMock.Setup(s => s.CreateTemplateAsync(dto)).ReturnsAsync(created);
+        _templateServiceMock.Setup(s => s.CreateTemplateAsync(_actorUserId, dto)).ReturnsAsync(created);
 
         var result = await _controller.CreateTemplate(dto);
 
