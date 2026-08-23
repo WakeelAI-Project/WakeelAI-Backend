@@ -97,12 +97,16 @@ public class InternalAiDocumentController : ControllerBase
             }
         }
 
+        var userIdHeader = Request.Headers["X-User-Id"].ToString();
+        Guid? generatedByUserId = Guid.TryParse(userIdHeader, out var parsedUserId) ? parsedUserId : null;
+
         var document = new GeneratedDocument
         {
             Id = Guid.NewGuid(),
             CompanyId = companyId,
             EmployeeId = employeeId,
             TemplateId = templateId,
+            GeneratedByUserId = generatedByUserId,
             DocumentType = request.DocumentType,
             Title = request.Title,
             Content = request.Content,
