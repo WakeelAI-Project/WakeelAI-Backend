@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
@@ -16,6 +17,11 @@ using Xunit;
 
 namespace Wakeel.Tests.Unit.Controllers;
 
+/// <summary>
+/// FIX-S2: identity for this endpoint now comes exclusively from verified JWT claims
+/// (via [Authorize(Roles = "Employee")]), never from client-supplied X-User-Id/X-Company-Id
+/// headers. These tests build the ClaimsPrincipal the way the real JWT middleware would.
+/// </summary>
 public class LeaveAttachmentControllerTests
 {
     private readonly Mock<IFileService> _fileServiceMock;
@@ -27,9 +33,7 @@ public class LeaveAttachmentControllerTests
     {
         _fileServiceMock = new Mock<IFileService>();
 
-        // The controller now uses ApplicationDbContext to verify
-        // that the employee exists. Therefore, this test needs
-        // a real test DbContext instead of null.
+        // The controller uses ApplicationDbContext to verify that the employee exists.
         _tenantServiceMock = new Mock<ICurrentTenantService>();
 
         // Disable tenant filtering for these unit tests.
@@ -50,35 +54,29 @@ public class LeaveAttachmentControllerTests
             _dbContext,
             Mock.Of<ILogger<LeaveAttachmentController>>());
 
-        var httpContext = new DefaultHttpContext();
-
         _controller.ControllerContext = new ControllerContext
         {
-            HttpContext = httpContext
+            HttpContext = new DefaultHttpContext()
         };
     }
 
-    [Fact]
-    public async Task UploadAttachment_ReturnsBadRequest_WhenNoFile()
+    private void AuthenticateAs(Guid userId, Guid companyId)
     {
-        // Act
-        var result = await _controller.UploadAttachment(
-            null,
-            CancellationToken.None);
+        var identity = new ClaimsIdentity(new[]
+        {
+            new Claim("user_id", userId.ToString()),
+            new Claim("company_id", companyId.ToString()),
+            new Claim("role", "Employee")
+        }, "TestAuth");
 
-        // Assert
-        Assert.IsType<BadRequestObjectResult>(result);
+        _controller.ControllerContext.HttpContext.User = new ClaimsPrincipal(identity);
     }
 
-    [Fact]
-    public async Task UploadAttachment_ReturnsCreated_WhenValidFileAndHeaders()
+    private async Task<Guid> SeedEmployeeAsync()
     {
-        // Arrange
         var userId = Guid.NewGuid();
         var companyId = Guid.NewGuid();
 
-        // The controller checks that the employee exists
-        // and belongs to the supplied company.
         var user = new User
         {
             Id = userId,
@@ -99,30 +97,64 @@ public class LeaveAttachmentControllerTests
         _dbContext.Users.Add(user);
         await _dbContext.SaveChangesAsync();
 
+        AuthenticateAs(userId, companyId);
+        return userId;
+    }
+
+    private static Mock<IFormFile> BuildFileMock(string fileName, string contentType, string content = "Hello World from a fake file")
+    {
         var fileMock = new Mock<IFormFile>();
+        var ms = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(content));
 
-        var content = "Hello World from a fake file";
+        fileMock.Setup(f => f.OpenReadStream()).Returns(ms);
+        fileMock.Setup(f => f.Length).Returns(ms.Length);
+        fileMock.Setup(f => f.FileName).Returns(fileName);
+        fileMock.Setup(f => f.ContentType).Returns(contentType);
 
-        var ms = new MemoryStream(
-            System.Text.Encoding.UTF8.GetBytes(content));
+        return fileMock;
+    }
 
-        fileMock
-            .Setup(f => f.OpenReadStream())
-            .Returns(ms);
+    [Fact]
+    public async Task UploadAttachment_ReturnsBadRequest_WhenCallerHasNoClaims()
+    {
+        // No AuthenticateAs() call - simulates a request that somehow reached the action
+        // without a resolvable identity (defense in depth behind [Authorize]).
+        var result = await _controller.UploadAttachment(null, CancellationToken.None);
 
-        fileMock
-            .Setup(f => f.Length)
-            .Returns(ms.Length);
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
 
-        fileMock
-            .Setup(f => f.FileName)
-            .Returns("report.pdf");
+    [Fact]
+    public async Task UploadAttachment_ReturnsBadRequest_WhenNoFile()
+    {
+        await SeedEmployeeAsync();
 
-        _controller.Request.Headers["X-User-Id"] =
-            userId.ToString();
+        var result = await _controller.UploadAttachment(null, CancellationToken.None);
 
-        _controller.Request.Headers["X-Company-Id"] =
-            companyId.ToString();
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task UploadAttachment_ReturnsBadRequest_WhenContentTypeDoesNotMatchExtension()
+    {
+        await SeedEmployeeAsync();
+        var fileMock = BuildFileMock("report.pdf", "text/html");
+
+        var result = await _controller.UploadAttachment(fileMock.Object, CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(result);
+        _fileServiceMock.Verify(
+            s => s.SaveFileAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "nothing should be written to disk when validation fails");
+    }
+
+    [Fact]
+    public async Task UploadAttachment_ReturnsCreated_WhenValidFileAndAuthenticatedEmployee()
+    {
+        // Arrange
+        await SeedEmployeeAsync();
+        var fileMock = BuildFileMock("report.pdf", "application/pdf");
 
         _fileServiceMock
             .Setup(s => s.SaveFileAsync(
