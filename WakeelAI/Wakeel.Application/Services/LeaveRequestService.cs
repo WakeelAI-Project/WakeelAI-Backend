@@ -285,6 +285,13 @@ public class LeaveRequestService : ILeaveRequestService
             {
                 throw new InvalidOperationException("validation_error");
             }
+        }
+
+        // Applies to both outcomes - a note is optional on approval (assigning only when
+        // present so an approval with no note never wipes one already on the request) and
+        // mandatory on rejection (enforced above).
+        if (!string.IsNullOrWhiteSpace(dto.HrNote))
+        {
             request.HrNote = dto.HrNote;
         }
 

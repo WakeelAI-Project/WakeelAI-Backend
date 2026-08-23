@@ -308,4 +308,108 @@ public class LeaveRequestServiceTests
         balance.TotalDays.Should().BeNull("Unpaid stays uncapped");
         unitOfWorkMock.Verify(u => u.LeaveBalances.Update(It.Is<LeaveBalance>(b => b.UsedDays == 5)), Times.Once);
     }
+
+    [Fact]
+    public async Task ReviewLeaveRequestAsync_ApprovingWithANote_PersistsItAndIncludesItInTheEmail()
+    {
+        // FIX-11: HrNote was only ever assigned inside the Rejected branch, so approving
+        // with a note silently dropped it - and the email (which already renders HrNote
+        // when present) went out without it.
+        var unitOfWorkMock = new Mock<IUnitOfWork>();
+        var fileServiceMock = new Mock<IFileService>();
+        var emailSenderMock = new Mock<IEmailSender>();
+        var loggerMock = new Mock<ILogger<LeaveRequestService>>();
+        var auditLogServiceMock = new Mock<IAuditLogService>();
+
+        var employeeId = Guid.NewGuid();
+        var companyId = Guid.NewGuid();
+        var hrUserId = Guid.NewGuid();
+        var requestId = Guid.NewGuid();
+
+        var request = new LeaveRequest
+        {
+            Id = requestId,
+            CompanyId = companyId,
+            EmployeeId = employeeId,
+            Status = "Pending",
+            LeaveType = "Annual",
+            StartDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(1)),
+            EndDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(2)),
+            DaysRequested = 2
+        };
+
+        unitOfWorkMock.Setup(u => u.LeaveRequests.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveRequest, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(request);
+        unitOfWorkMock.Setup(u => u.Users.GetByIdAsync(employeeId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new User { Id = employeeId, FullName = "Employee Name", Email = "employee@test.com" });
+        unitOfWorkMock.Setup(u => u.Users.GetByIdAsync(hrUserId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new User { Id = hrUserId, FullName = "HR Name" });
+
+        var balance = new LeaveBalance { Id = Guid.NewGuid(), EmployeeId = employeeId, LeaveType = "Annual", Year = request.StartDate.Year, TotalDays = 21, UsedDays = 0 };
+        unitOfWorkMock.Setup(u => u.LeaveBalances.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveBalance, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(balance);
+
+        var leaveBalanceProvisioningService = new LeaveBalanceProvisioningService(unitOfWorkMock.Object);
+        var service = new LeaveRequestService(unitOfWorkMock.Object, fileServiceMock.Object, emailSenderMock.Object, loggerMock.Object, auditLogServiceMock.Object, leaveBalanceProvisioningService);
+
+        var dto = new ReviewLeaveRequestDto { Status = "Approved", HrNote = "Enjoy your trip!" };
+
+        var result = await service.ReviewLeaveRequestAsync(requestId, companyId, hrUserId, dto);
+
+        result.HrNote.Should().Be("Enjoy your trip!");
+        request.HrNote.Should().Be("Enjoy your trip!");
+        emailSenderMock.Verify(e => e.SendEmailAsync(
+            "employee@test.com",
+            It.IsAny<string>(),
+            It.Is<string>(body => body.Contains("Enjoy your trip!")),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ReviewLeaveRequestAsync_ApprovingWithNoNote_DoesNotWipeAnExistingOne()
+    {
+        var unitOfWorkMock = new Mock<IUnitOfWork>();
+        var fileServiceMock = new Mock<IFileService>();
+        var emailSenderMock = new Mock<IEmailSender>();
+        var loggerMock = new Mock<ILogger<LeaveRequestService>>();
+        var auditLogServiceMock = new Mock<IAuditLogService>();
+
+        var employeeId = Guid.NewGuid();
+        var companyId = Guid.NewGuid();
+        var hrUserId = Guid.NewGuid();
+        var requestId = Guid.NewGuid();
+
+        var request = new LeaveRequest
+        {
+            Id = requestId,
+            CompanyId = companyId,
+            EmployeeId = employeeId,
+            Status = "Pending",
+            LeaveType = "Annual",
+            StartDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(1)),
+            EndDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(2)),
+            DaysRequested = 2,
+            HrNote = "Earlier note from a prior touch"
+        };
+
+        unitOfWorkMock.Setup(u => u.LeaveRequests.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveRequest, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(request);
+        unitOfWorkMock.Setup(u => u.Users.GetByIdAsync(employeeId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new User { Id = employeeId, FullName = "Employee Name" });
+        unitOfWorkMock.Setup(u => u.Users.GetByIdAsync(hrUserId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new User { Id = hrUserId, FullName = "HR Name" });
+
+        var balance = new LeaveBalance { Id = Guid.NewGuid(), EmployeeId = employeeId, LeaveType = "Annual", Year = request.StartDate.Year, TotalDays = 21, UsedDays = 0 };
+        unitOfWorkMock.Setup(u => u.LeaveBalances.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveBalance, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(balance);
+
+        var leaveBalanceProvisioningService = new LeaveBalanceProvisioningService(unitOfWorkMock.Object);
+        var service = new LeaveRequestService(unitOfWorkMock.Object, fileServiceMock.Object, emailSenderMock.Object, loggerMock.Object, auditLogServiceMock.Object, leaveBalanceProvisioningService);
+
+        var dto = new ReviewLeaveRequestDto { Status = "Approved" };
+
+        var result = await service.ReviewLeaveRequestAsync(requestId, companyId, hrUserId, dto);
+
+        result.HrNote.Should().Be("Earlier note from a prior touch");
+    }
 }
