@@ -69,6 +69,15 @@ public partial class Program
 
         var app = builder.Build();
 
+        // Fail fast when a required secret is absent. Secrets are never committed:
+        // appsettings.json ships with empty placeholders and real values come from
+        // User Secrets (local development) or environment variables (deployment).
+        // See appsettings.Example.json for the full list of keys.
+        // Runs against the fully-built configuration (so every provider, including ones
+        // contributed by a test host, has been applied) and before a single request is
+        // served. Never logs the values themselves - only the names of the missing keys.
+        EnsureRequiredConfiguration(app.Configuration);
+
         // OpenAPI & Scalar
         // if (app.Environment.IsDevelopment())
         // {
@@ -128,6 +137,38 @@ public partial class Program
         app.MapHealthChecks("/health");
 
         app.Run();
+    }
+
+    /// <summary>
+    /// Validates that every configuration key the application cannot run without has been
+    /// supplied. Throws an <see cref="InvalidOperationException"/> naming the missing key(s)
+    /// so a misconfigured deployment fails at startup instead of at first request.
+    /// Values are never written to logs or exception messages.
+    /// </summary>
+    /// <param name="configuration">The application configuration to validate.</param>
+    /// <exception cref="InvalidOperationException">Thrown when a required key is missing, empty, or whitespace.</exception>
+    internal static void EnsureRequiredConfiguration(IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        string[] requiredKeys =
+        [
+            "ConnectionStrings:DefaultConnection",
+            "Jwt:SecretKey",
+            "AiNode:InternalApiKey"
+        ];
+
+        var missing = requiredKeys
+            .Where(key => string.IsNullOrWhiteSpace(configuration[key]))
+            .ToList();
+
+        if (missing.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"Required configuration is missing: {string.Join(", ", missing)}. " +
+                "Supply these via User Secrets (local development) or environment variables " +
+                "(deployment, e.g. Jwt__SecretKey). See appsettings.Example.json.");
+        }
     }
 }
 
