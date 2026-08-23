@@ -381,4 +381,131 @@ public class InternalAiLeaveControllerTests : IClassFixture<CustomWebApplication
         var doc  = JsonDocument.Parse(json);
         doc.RootElement.GetProperty("error").GetString().Should().Be("not_a_draft");
     }
+
+    // -------- GET /api/ai/leave-requests/latest-draft (FIX-05) --------
+
+    [Fact]
+    public async Task GetLatestDraft_MissingPsk_Returns401()
+    {
+        var client = _factory.CreateClient();
+        using var request = BuildInternalRequest(
+            HttpMethod.Get, "/api/ai/leave-requests/latest-draft",
+            psk: null, userId: Guid.NewGuid().ToString(), companyId: Guid.NewGuid().ToString(), role: "Employee");
+
+        var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task GetLatestDraft_GivenNoDraft_Returns404()
+    {
+        var (employeeId, companyId) = await SeedEmployeeAsync();
+        var client = _factory.CreateClient();
+
+        using var request = BuildInternalRequest(
+            HttpMethod.Get, "/api/ai/leave-requests/latest-draft",
+            psk: ValidPsk, userId: employeeId.ToString(), companyId: companyId.ToString(), role: "Employee");
+
+        var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        doc.RootElement.GetProperty("error").GetString().Should().Be("leave_request_not_found");
+    }
+
+    [Fact]
+    public async Task GetLatestDraft_GivenAnExistingDraft_ReturnsItsIdTypeAndDates()
+    {
+        var (employeeId, companyId) = await SeedEmployeeAsync();
+        var client = _factory.CreateClient();
+
+        using var createReq = BuildInternalRequest(
+            HttpMethod.Post, "/api/ai/leave-requests",
+            psk: ValidPsk, userId: employeeId.ToString(), companyId: companyId.ToString(), role: "Employee",
+            body: new { leave_type = "Annual", start_date = "2026-11-01", end_date = "2026-11-02" });
+        var createRes = await client.SendAsync(createReq);
+        createRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var requestId = JsonDocument.Parse(await createRes.Content.ReadAsStringAsync()).RootElement.GetProperty("request_id").GetString()!;
+
+        using var request = BuildInternalRequest(
+            HttpMethod.Get, "/api/ai/leave-requests/latest-draft",
+            psk: ValidPsk, userId: employeeId.ToString(), companyId: companyId.ToString(), role: "Employee");
+
+        var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        doc.RootElement.GetProperty("request_id").GetString().Should().Be(requestId);
+        doc.RootElement.GetProperty("leave_type").GetString().Should().Be("Annual");
+        doc.RootElement.GetProperty("start_date").GetString().Should().Be("2026-11-01");
+        doc.RootElement.GetProperty("end_date").GetString().Should().Be("2026-11-02");
+    }
+
+    [Fact]
+    public async Task GetLatestDraft_DraftAlreadySubmitted_Returns404BecauseItIsNoLongerADraft()
+    {
+        var (employeeId, companyId) = await SeedEmployeeAsync();
+        var client = _factory.CreateClient();
+
+        using var createReq = BuildInternalRequest(
+            HttpMethod.Post, "/api/ai/leave-requests",
+            psk: ValidPsk, userId: employeeId.ToString(), companyId: companyId.ToString(), role: "Employee",
+            body: new { leave_type = "Annual", start_date = "2026-11-01", end_date = "2026-11-02" });
+        var createRes = await client.SendAsync(createReq);
+        var requestId = JsonDocument.Parse(await createRes.Content.ReadAsStringAsync()).RootElement.GetProperty("request_id").GetString()!;
+
+        using var submitReq = BuildInternalRequest(
+            HttpMethod.Patch, $"/api/ai/leave-requests/{requestId}/submit",
+            psk: ValidPsk, userId: employeeId.ToString(), companyId: companyId.ToString(), role: "Employee");
+        (await client.SendAsync(submitReq)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var request = BuildInternalRequest(
+            HttpMethod.Get, "/api/ai/leave-requests/latest-draft",
+            psk: ValidPsk, userId: employeeId.ToString(), companyId: companyId.ToString(), role: "Employee");
+
+        var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task GetLatestDraft_AnotherEmployeesDraftIsNeverReturned()
+    {
+        var (employeeIdA, companyIdA) = await SeedEmployeeAsync();
+        var (employeeIdB, companyIdB) = await SeedEmployeeAsync();
+        var client = _factory.CreateClient();
+
+        // Employee A creates a draft.
+        using var createReq = BuildInternalRequest(
+            HttpMethod.Post, "/api/ai/leave-requests",
+            psk: ValidPsk, userId: employeeIdA.ToString(), companyId: companyIdA.ToString(), role: "Employee",
+            body: new { leave_type = "Annual", start_date = "2026-11-01", end_date = "2026-11-02" });
+        (await client.SendAsync(createReq)).StatusCode.Should().Be(HttpStatusCode.Created);
+
+        // Employee B asks for the latest draft using their own (valid) identity headers -
+        // must never see employee A's draft, even though both requests carry a valid PSK.
+        using var request = BuildInternalRequest(
+            HttpMethod.Get, "/api/ai/leave-requests/latest-draft",
+            psk: ValidPsk, userId: employeeIdB.ToString(), companyId: companyIdB.ToString(), role: "Employee");
+
+        var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task GetLatestDraft_NonEmployeeRole_Returns403()
+    {
+        var (employeeId, companyId) = await SeedEmployeeAsync();
+        var client = _factory.CreateClient();
+
+        using var request = BuildInternalRequest(
+            HttpMethod.Get, "/api/ai/leave-requests/latest-draft",
+            psk: ValidPsk, userId: employeeId.ToString(), companyId: companyId.ToString(), role: "HR_Manager");
+
+        var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
 }
