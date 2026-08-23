@@ -148,6 +148,95 @@ public class InternalAiContextControllerTests : IClassFixture<CustomWebApplicati
     }
 
     [Fact]
+    public async Task GetEmployeeContext_UnpaidAndSick_ReportAsUncappedNotZero()
+    {
+        // FIX-06: TotalDays ?? 0 used to coerce a genuinely uncapped balance to zero,
+        // which the assistant would read as "no leave left" instead of "no cap".
+        var (employeeId, companyId) = await SeedEmployeeAsync();
+        var client = _factory.CreateClient();
+        var request = BuildInternalRequest("/api/ai/employee-context", ValidPsk, employeeId.ToString(), companyId.ToString(), "Employee");
+
+        var response = await client.SendAsync(request);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var balance = doc.RootElement.GetProperty("leave_balance");
+
+        var sick = balance.GetProperty("sick");
+        sick.GetProperty("total_days").ValueKind.Should().Be(JsonValueKind.Null);
+        sick.GetProperty("remaining_days").ValueKind.Should().Be(JsonValueKind.Null);
+        sick.GetProperty("is_uncapped").GetBoolean().Should().BeTrue();
+
+        var unpaid = balance.GetProperty("unpaid");
+        unpaid.GetProperty("total_days").ValueKind.Should().Be(JsonValueKind.Null);
+        unpaid.GetProperty("remaining_days").ValueKind.Should().Be(JsonValueKind.Null);
+        unpaid.GetProperty("is_uncapped").GetBoolean().Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task GetEmployeeContext_NoBalanceRowYetForCurrentYear_ProvisionsInsteadOfOmittingIt()
+    {
+        // FIX-06: a brand-new year with no balance rows touched yet must still come back
+        // with real, computed values - not silently missing fields.
+        var client = _factory.CreateClient();
+        var suffix = Guid.NewGuid().ToString("N")[..12];
+        var ownerEmail = $"owner_{suffix}@test.local";
+
+        var registerResponse = await client.PostAsJsonAsync("/api/auth/register-company", new
+        {
+            company_name = $"Test Company {suffix}",
+            tax_id = suffix,
+            owner_full_name = "Test Owner",
+            owner_email = ownerEmail,
+            password = "TestPassword123!"
+        });
+        registerResponse.EnsureSuccessStatusCode();
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var owner = await db.Users.FirstOrDefaultAsync(u => u.Email == ownerEmail);
+
+        var employee = new Wakeel.Domain.Entities.User
+        {
+            Id = Guid.NewGuid(),
+            CompanyId = owner!.CompanyId,
+            FullName = "No Balance Yet",
+            Email = $"emp_{suffix}@test.local",
+            IsActive = true,
+            Role = Wakeel.Domain.Enums.UserRole.Employee,
+            PasswordHash = "hash"
+        };
+        db.Users.Add(employee);
+
+        var dept = new Wakeel.Domain.Entities.Department { Id = Guid.NewGuid(), CompanyId = owner.CompanyId, Name = "Engineering" };
+        db.Departments.Add(dept);
+
+        // Hired well over a decade ago - Annual should compute to the senior 30-day tier
+        // once provisioned, but no LeaveBalance row exists for this employee at all yet.
+        var profile = new Wakeel.Domain.Entities.EmployeeProfile
+        {
+            UserId = employee.Id,
+            DepartmentId = dept.Id,
+            JobTitle = "Dev",
+            HireDate = new DateOnly(2010, 1, 1),
+            ContractType = "FullTime",
+            Salary = 15000m
+        };
+        db.EmployeeProfiles.Add(profile);
+        await db.SaveChangesAsync();
+
+        var request2 = BuildInternalRequest("/api/ai/employee-context", ValidPsk, employee.Id.ToString(), owner.CompanyId.ToString(), "Employee");
+        var response = await client.SendAsync(request2);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var annual = doc.RootElement.GetProperty("leave_balance").GetProperty("annual");
+        annual.GetProperty("total_days").GetInt32().Should().Be(30);
+        annual.GetProperty("used_days").GetInt32().Should().Be(0);
+        annual.GetProperty("remaining_days").GetInt32().Should().Be(30);
+    }
+
+    [Fact]
     public async Task GetEmployeeContext_CrossTenant_Returns404()
     {
         var (employeeId, _) = await SeedEmployeeAsync();
