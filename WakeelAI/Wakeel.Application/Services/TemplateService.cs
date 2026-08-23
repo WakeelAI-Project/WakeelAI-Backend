@@ -102,6 +102,9 @@ public class TemplateService : ITemplateService
         if (template == null)
             throw new InvalidOperationException("template_not_found");
 
+        if (!string.IsNullOrWhiteSpace(request.DocumentType))
+            template.DocumentType = request.DocumentType;
+
         if (request.Name != null)
             template.Name = request.Name;
 

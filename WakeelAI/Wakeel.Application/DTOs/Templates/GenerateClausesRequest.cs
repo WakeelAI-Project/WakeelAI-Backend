@@ -26,4 +26,10 @@ public record GenerateClausesRequest
     /// </summary>
     [JsonPropertyName("clause_type")]
     public string? ClauseType { get; init; }
+
+    [JsonPropertyName("document_type")]
+    public string? DocumentType { get; init; }
+
+    [JsonPropertyName("template_name")]
+    public string? TemplateName { get; init; }
 }
