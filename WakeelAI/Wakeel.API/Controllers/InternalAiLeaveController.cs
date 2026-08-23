@@ -88,9 +88,12 @@ public class InternalAiLeaveController : ControllerBase
 
         if (!string.IsNullOrWhiteSpace(dto.AttachmentUrl))
         {
-            var incomingUrlCleaned = dto.AttachmentUrl.Replace(".", "").Replace("-", "");
+            // The AI intent router requires absolute URLs, but the DB stores relative URLs.
+            // Extract the filename part and compare it to handle both cases securely.
+            var incomingFilenameCleaned = dto.AttachmentUrl.Split('/', StringSplitOptions.RemoveEmptyEntries).Last().Replace(".", "").Replace("-", "");
+
             var validAttachment = await _dbContext.LeaveAttachments
-                .FirstOrDefaultAsync(a => a.Url.Replace(".", "").Replace("-", "") == incomingUrlCleaned && a.CompanyId == companyId, cancellationToken);
+                .FirstOrDefaultAsync(a => a.Url.Replace(".", "").Replace("-", "").EndsWith(incomingFilenameCleaned) && a.CompanyId == companyId, cancellationToken);
             
             if (validAttachment == null)
             {
