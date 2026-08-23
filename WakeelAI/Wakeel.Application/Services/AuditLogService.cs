@@ -20,7 +20,7 @@ public class AuditLogService : IAuditLogService
         _currentTenantService = currentTenantService ?? throw new ArgumentNullException(nameof(currentTenantService));
     }
 
-    public async Task<(IEnumerable<AuditLogDto> Data, int Total)> GetAuditLogsAsync(int page, int limit, string? action, Guid? userId)
+    public async Task<(IEnumerable<AuditLogDto> Data, int Total)> GetAuditLogsAsync(int page, int limit, string? action, Guid? userId, string? userName = null)
     {
         var allLogs = await _unitOfWork.AuditLogs.GetAllAsync();
         var query = allLogs.AsQueryable();
@@ -30,6 +30,20 @@ public class AuditLogService : IAuditLogService
 
         if (userId.HasValue)
             query = query.Where(a => a.UserId == userId.Value);
+
+        // userName filter: resolve matching user IDs then filter logs by those IDs
+        if (!string.IsNullOrWhiteSpace(userName))
+        {
+            var trimmed = userName.Trim();
+            var allUsers = await _unitOfWork.Users.GetAllAsync();
+            var matchingIds = allUsers
+                .Where(u => !string.IsNullOrEmpty(u.FullName) &&
+                            u.FullName.Contains(trimmed, StringComparison.OrdinalIgnoreCase))
+                .Select(u => u.Id)
+                .ToHashSet();
+
+            query = query.Where(a => a.UserId.HasValue && matchingIds.Contains(a.UserId.Value));
+        }
 
         var total = query.Count();
 
