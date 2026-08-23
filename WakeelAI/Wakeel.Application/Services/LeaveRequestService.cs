@@ -266,16 +266,16 @@ public class LeaveRequestService : ILeaveRequestService
             var year = request.StartDate.Year;
             var balance = await _leaveBalanceProvisioningService.GetOrCreateAsync(request.EmployeeId, request.LeaveType, year, cancellationToken);
 
-            if (balance.TotalDays.HasValue)
+            // The cap check only applies when a cap exists; the usage increment always
+            // runs. Nesting the increment inside the HasValue check (as this used to do)
+            // meant approving an uncapped type (Sick, Unpaid) never recorded any usage.
+            if (balance.TotalDays.HasValue && balance.TotalDays.Value - balance.UsedDays < request.DaysRequested)
             {
-                if (balance.TotalDays.Value - balance.UsedDays < request.DaysRequested)
-                {
-                    throw new InvalidOperationException("insufficient_leave_balance");
-                }
-                
-                balance.UsedDays += request.DaysRequested;
-                _unitOfWork.LeaveBalances.Update(balance);
+                throw new InvalidOperationException("insufficient_leave_balance");
             }
+
+            balance.UsedDays += request.DaysRequested;
+            _unitOfWork.LeaveBalances.Update(balance);
         }
         else if (dto.Status == "Rejected")
         {

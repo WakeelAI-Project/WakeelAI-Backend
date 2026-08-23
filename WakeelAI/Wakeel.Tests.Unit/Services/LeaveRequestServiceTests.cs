@@ -206,4 +206,56 @@ public class LeaveRequestServiceTests
         unitOfWorkMock.Verify(u => u.LeaveRequests.Update(It.Is<LeaveRequest>(r => r.ReviewedByUserId == hrUserId && r.Status == "Rejected")), Times.Once);
         unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
+
+    [Fact]
+    public async Task ReviewLeaveRequestAsync_ApprovingUncappedLeaveType_StillIncrementsUsedDays()
+    {
+        // FIX-02: the usage increment used to sit inside the "has a cap" branch, so
+        // approving an uncapped type (Sick, Unpaid) never recorded any usage at all.
+        var unitOfWorkMock = new Mock<IUnitOfWork>();
+        var fileServiceMock = new Mock<IFileService>();
+        var emailSenderMock = new Mock<IEmailSender>();
+        var loggerMock = new Mock<ILogger<LeaveRequestService>>();
+        var auditLogServiceMock = new Mock<IAuditLogService>();
+
+        var employeeId = Guid.NewGuid();
+        var companyId = Guid.NewGuid();
+        var hrUserId = Guid.NewGuid();
+        var requestId = Guid.NewGuid();
+
+        var request = new LeaveRequest
+        {
+            Id = requestId,
+            CompanyId = companyId,
+            EmployeeId = employeeId,
+            Status = "Pending",
+            LeaveType = "Unpaid",
+            StartDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(1)),
+            EndDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(5)),
+            DaysRequested = 5
+        };
+
+        unitOfWorkMock.Setup(u => u.LeaveRequests.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveRequest, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(request);
+        unitOfWorkMock.Setup(u => u.Users.GetByIdAsync(employeeId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new User { Id = employeeId, FullName = "Employee Name" });
+        unitOfWorkMock.Setup(u => u.Users.GetByIdAsync(hrUserId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new User { Id = hrUserId, FullName = "HR Name" });
+
+        var balance = new LeaveBalance { Id = Guid.NewGuid(), EmployeeId = employeeId, LeaveType = "Unpaid", Year = request.StartDate.Year, TotalDays = null, UsedDays = 0 };
+        unitOfWorkMock.Setup(u => u.LeaveBalances.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveBalance, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(balance);
+
+        var leaveBalanceProvisioningService = new LeaveBalanceProvisioningService(unitOfWorkMock.Object);
+        var service = new LeaveRequestService(unitOfWorkMock.Object, fileServiceMock.Object, emailSenderMock.Object, loggerMock.Object, auditLogServiceMock.Object, leaveBalanceProvisioningService);
+
+        var dto = new ReviewLeaveRequestDto { Status = "Approved" };
+
+        var result = await service.ReviewLeaveRequestAsync(requestId, companyId, hrUserId, dto);
+
+        result.Status.Should().Be("Approved");
+        balance.UsedDays.Should().Be(5);
+        balance.TotalDays.Should().BeNull("Unpaid stays uncapped");
+        unitOfWorkMock.Verify(u => u.LeaveBalances.Update(It.Is<LeaveBalance>(b => b.UsedDays == 5)), Times.Once);
+    }
 }
