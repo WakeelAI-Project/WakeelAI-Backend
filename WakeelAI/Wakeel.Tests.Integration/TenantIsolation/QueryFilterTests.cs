@@ -1,5 +1,4 @@
 ﻿using FluentAssertions;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using System;
@@ -13,11 +12,11 @@ using Wakeel.Infrastructure.Persistence;
 using Xunit;
 namespace Wakeel.Tests.Integration.TenantIsolation;
 
-public class QueryFilterTests : IClassFixture<WebApplicationFactory<Program>>
+public class QueryFilterTests : IClassFixture<CustomWebApplicationFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly CustomWebApplicationFactory _factory;
 
-    public QueryFilterTests(WebApplicationFactory<Program> factory)
+    public QueryFilterTests(CustomWebApplicationFactory factory)
     {
         _factory = factory;
     }
