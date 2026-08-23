@@ -87,9 +87,13 @@ public class EmployeesEndpointTests : IClassFixture<CustomWebApplicationFactory>
 
         var leaveBalances = await db.LeaveBalances.Where(lb => lb.EmployeeId == recordId).ToListAsync();
         leaveBalances.Should().HaveCount(3);
+        // Hired 1 Jan of the balance's own year, so the employed fraction of that year is
+        // 1.0 and the pro-rated first-year Annual amount equals the full 15-day base.
         leaveBalances.Should().ContainSingle(lb => lb.LeaveType == "Annual" && lb.TotalDays == 15 && lb.UsedDays == 0);
-        leaveBalances.Should().ContainSingle(lb => lb.LeaveType == "Sick" && lb.TotalDays == 10 && lb.UsedDays == 0);
-        leaveBalances.Should().ContainSingle(lb => lb.LeaveType == "Unpaid" && lb.TotalDays == 0 && lb.UsedDays == 0);
+        // FIX-01: Sick has no fixed day quota under Law No. 14/2025 and Unpaid has no
+        // statutory quota - both are now uncapped (null), not a hardcoded number.
+        leaveBalances.Should().ContainSingle(lb => lb.LeaveType == "Sick" && lb.TotalDays == null && lb.UsedDays == 0);
+        leaveBalances.Should().ContainSingle(lb => lb.LeaveType == "Unpaid" && lb.TotalDays == null && lb.UsedDays == 0);
     }
 
     [Fact]

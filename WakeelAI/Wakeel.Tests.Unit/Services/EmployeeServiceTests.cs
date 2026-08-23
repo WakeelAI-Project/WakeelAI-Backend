@@ -23,10 +23,12 @@ public class EmployeeServiceTests
     private readonly Mock<ILeaveBalanceRepository> _leaveBalanceRepositoryMock = new();
     private readonly Mock<ILeaveRequestRepository> _leaveRequestRepositoryMock = new();
     private readonly Mock<IDepartmentRepository> _departmentRepositoryMock = new();
+    private readonly Mock<ILeaveEntitlementRepository> _leaveEntitlementRepositoryMock = new();
     private readonly Mock<IPasswordHasher> _passwordHasherMock = new();
     private readonly Mock<ILogger<EmployeeService>> _loggerMock = new();
     private readonly Mock<IEmailSender> _emailSenderMock = new();
     private readonly Mock<IResourceLoader> _resourceLoaderMock = new();
+    private readonly Mock<IAuditLogService> _auditLogServiceMock = new();
 
     private readonly EmployeeService _sut;
 
@@ -38,6 +40,14 @@ public class EmployeeServiceTests
         _unitOfWorkMock.Setup(u => u.LeaveBalances).Returns(_leaveBalanceRepositoryMock.Object);
         _unitOfWorkMock.Setup(u => u.LeaveRequests).Returns(_leaveRequestRepositoryMock.Object);
         _unitOfWorkMock.Setup(u => u.Departments).Returns(_departmentRepositoryMock.Object);
+        _unitOfWorkMock.Setup(u => u.LeaveEntitlements).Returns(_leaveEntitlementRepositoryMock.Object);
+
+        // Real seeded entitlement rows (mirrors LeaveEntitlementConfiguration) so the real
+        // LeaveBalanceProvisioningService below computes genuine tiered values, not stubs.
+        _leaveEntitlementRepositoryMock
+            .Setup(r => r.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveEntitlement, bool>>>(), It.IsAny<CancellationToken>()))
+            .Returns<System.Linq.Expressions.Expression<Func<LeaveEntitlement, bool>>, CancellationToken>((predicate, _) =>
+                Task.FromResult(SeededEntitlements.FirstOrDefault(predicate.Compile())));
 
         _refreshTokenRepositoryMock
             .Setup(r => r.FindAsync(It.IsAny<System.Linq.Expressions.Expression<Func<RefreshToken, bool>>>(), It.IsAny<CancellationToken>()))
@@ -66,14 +76,45 @@ public class EmployeeServiceTests
             .Setup(r => r.GetUserAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .Returns<Guid, CancellationToken>((id, ct) => _userRepositoryMock.Object.GetByIdAsync(id, ct));
 
+        // LeaveBalanceProvisioningService resolves an employee's HireDate via
+        // EmployeeProfiles.GetByUserIdAsync. Delegate it to GetByIdAsync (EmployeeProfile's
+        // primary key IS UserId) so any per-test GetByIdAsync setup - including one
+        // registered after this constructor runs - is honoured automatically. A profile
+        // added via AddAsync during CreateEmployeeAsync (and not yet given its own
+        // GetByIdAsync setup) is captured here too, so it becomes visible in the same test.
+        _employeeProfileRepositoryMock
+            .Setup(r => r.AddAsync(It.IsAny<EmployeeProfile>(), It.IsAny<CancellationToken>()))
+            .Callback<EmployeeProfile, CancellationToken>((p, _) => _addedProfiles[p.UserId] = p)
+            .Returns(Task.CompletedTask);
+        _employeeProfileRepositoryMock
+            .Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .Returns<Guid, CancellationToken>((id, _) => Task.FromResult(_addedProfiles.GetValueOrDefault(id)));
+        _employeeProfileRepositoryMock
+            .Setup(r => r.GetByUserIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .Returns<Guid, CancellationToken>((id, ct) => _employeeProfileRepositoryMock.Object.GetByIdAsync(id, ct));
+
+        var leaveBalanceProvisioningService = new LeaveBalanceProvisioningService(_unitOfWorkMock.Object);
+
         _sut = new EmployeeService(
             _unitOfWorkMock.Object,
             _passwordHasherMock.Object,
             _loggerMock.Object,
             _emailSenderMock.Object,
-            _resourceLoaderMock.Object
+            _resourceLoaderMock.Object,
+            leaveBalanceProvisioningService,
+            _auditLogServiceMock.Object
         );
     }
+
+    private readonly Dictionary<Guid, EmployeeProfile> _addedProfiles = new();
+
+    /// <summary>Mirrors the seed data in LeaveEntitlementConfiguration.</summary>
+    private static readonly List<LeaveEntitlement> SeededEntitlements = new()
+    {
+        new LeaveEntitlement { LeaveType = "Annual", BaseDays = 15, StandardDays = 21, SeniorDays = 30, SeniorityYears = 10, MinimumServiceMonths = 6 },
+        new LeaveEntitlement { LeaveType = "Sick", DefaultDays = null },
+        new LeaveEntitlement { LeaveType = "Unpaid", DefaultDays = null }
+    };
 
     // ------------------------------------------------------------
     // CreateEmployeeAsync
@@ -218,18 +259,24 @@ public class EmployeeServiceTests
 
         _leaveBalanceRepositoryMock.Verify(r => r.AddAsync(It.IsAny<LeaveBalance>(), It.IsAny<CancellationToken>()), Times.Exactly(3));
 
-        _unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        // FIX-01: CreateEmployeeAsync now saves twice - once so the just-added profile is
+        // visible to the provisioning service's own EmployeeProfiles lookup (which only
+        // sees persisted rows), then again to persist the provisioned leave balances.
+        _unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Exactly(2));
         _emailSenderMock.Verify(e => e.SendEmailAsync(request.Email, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
-    public async Task CreateEmployeeAsync_GivenValidRequest_ShouldInitializeLeaveBalancesForCurrentYear()
+    public async Task CreateEmployeeAsync_GivenValidRequest_ShouldInitializeLeaveBalancesForHireYear()
     {
         // Arrange
         var companyId = Guid.NewGuid();
-        var request = CreateValidRequest();
+        // A fixed historical hire date, not "yesterday": the Annual assertion below needs
+        // "under 6 months of service by the hire year's own year-end" to hold no matter
+        // which calendar month this test happens to run in.
+        var request = CreateValidRequest() with { HireDate = new DateTime(2020, 11, 15) };
         SetupValidDepartment(companyId, request.DepartmentId!.Value);
-        var currentYear = DateTime.UtcNow.Year;
+        var hireYear = request.HireDate.Year;
         var addedBalances = new List<LeaveBalance>();
 
         _userRepositoryMock
@@ -246,16 +293,21 @@ public class EmployeeServiceTests
 
         // Assert
         addedBalances.Should().HaveCount(3);
-        addedBalances.Should().OnlyContain(lb => lb.EmployeeId == result.RecordId && lb.Year == currentYear && lb.UsedDays == 0);
+        addedBalances.Should().OnlyContain(lb => lb.EmployeeId == result.RecordId && lb.Year == hireYear && lb.UsedDays == 0);
 
+        // Hired "yesterday": always under 6 months of service by the hire year's own
+        // year-end, so Annual reads 0 for this, its very first, partial year - it can
+        // never reach the prorated/standard/senior tiers within the hire year itself.
+        // Exact tier boundaries are covered by LeaveBalanceProvisioningServiceTests with
+        // fixed, calendar-independent dates.
         var annual = addedBalances.Should().ContainSingle(lb => lb.LeaveType == "Annual").Subject;
-        annual.TotalDays.Should().Be(15);
+        annual.TotalDays.Should().Be(0);
 
         var sick = addedBalances.Should().ContainSingle(lb => lb.LeaveType == "Sick").Subject;
-        sick.TotalDays.Should().Be(10);
+        sick.TotalDays.Should().BeNull("Sick has no fixed day quota under Law No. 14/2025");
 
         var unpaid = addedBalances.Should().ContainSingle(lb => lb.LeaveType == "Unpaid").Subject;
-        unpaid.TotalDays.Should().Be(0);
+        unpaid.TotalDays.Should().BeNull("Unpaid has no statutory quota");
     }
 
     [Fact]
@@ -279,7 +331,7 @@ public class EmployeeServiceTests
 
         // Assert
         result.Should().NotBeNull();
-        _unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        _unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Exactly(2));
     }
 
     // ------------------------------------------------------------

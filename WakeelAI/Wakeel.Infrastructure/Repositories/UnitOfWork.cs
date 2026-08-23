@@ -20,6 +20,7 @@ public class UnitOfWork : IUnitOfWork
     private IEmployeeProfileRepository? _employeeProfiles;
     private IDepartmentRepository? _departments;
     private ILeaveBalanceRepository? _leaveBalances;
+    private ILeaveEntitlementRepository? _leaveEntitlements;
     private ILeaveRequestRepository? _leaveRequests;
     private IDocumentTemplateRepository? _documentTemplates;
     private IGeneratedDocumentRepository? _generatedDocuments;
@@ -55,6 +56,11 @@ public class UnitOfWork : IUnitOfWork
     /// Repository for leave balance records.
     /// </summary>
     public ILeaveBalanceRepository LeaveBalances => _leaveBalances ??= new LeaveBalanceRepository(_dbContext);
+
+    /// <summary>
+    /// Repository for leave entitlement reference rows.
+    /// </summary>
+    public ILeaveEntitlementRepository LeaveEntitlements => _leaveEntitlements ??= new LeaveEntitlementRepository(_dbContext);
 
     /// <summary>
     /// Repository for leave request records.

@@ -19,19 +19,22 @@ public class LeaveRequestService : ILeaveRequestService
     private readonly IEmailSender _emailSender;
     private readonly ILogger<LeaveRequestService> _logger;
     private readonly IAuditLogService _auditLogService;
+    private readonly ILeaveBalanceProvisioningService _leaveBalanceProvisioningService;
 
     public LeaveRequestService(
-        IUnitOfWork unitOfWork, 
-        IFileService fileService, 
-        IEmailSender emailSender, 
+        IUnitOfWork unitOfWork,
+        IFileService fileService,
+        IEmailSender emailSender,
         ILogger<LeaveRequestService> logger,
-        IAuditLogService auditLogService)
+        IAuditLogService auditLogService,
+        ILeaveBalanceProvisioningService leaveBalanceProvisioningService)
     {
         _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
         _fileService = fileService ?? throw new ArgumentNullException(nameof(fileService));
         _emailSender = emailSender ?? throw new ArgumentNullException(nameof(emailSender));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _auditLogService = auditLogService ?? throw new ArgumentNullException(nameof(auditLogService));
+        _leaveBalanceProvisioningService = leaveBalanceProvisioningService ?? throw new ArgumentNullException(nameof(leaveBalanceProvisioningService));
     }
 
     public async Task<LeaveRequestDto> CreateDraftAsync(Guid employeeId, Guid companyId, CreateLeaveRequestDto dto, (System.IO.Stream Stream, string FileName)? attachment, CancellationToken cancellationToken = default)
@@ -261,9 +264,9 @@ public class LeaveRequestService : ILeaveRequestService
         if (dto.Status == "Approved")
         {
             var year = request.StartDate.Year;
-            var balance = await _unitOfWork.LeaveBalances.FirstOrDefaultAsync(lb => lb.EmployeeId == request.EmployeeId && lb.LeaveType == request.LeaveType && lb.Year == year, cancellationToken);
+            var balance = await _leaveBalanceProvisioningService.GetOrCreateAsync(request.EmployeeId, request.LeaveType, year, cancellationToken);
 
-            if (balance != null && balance.TotalDays.HasValue)
+            if (balance.TotalDays.HasValue)
             {
                 if (balance.TotalDays.Value - balance.UsedDays < request.DaysRequested)
                 {
@@ -365,16 +368,13 @@ public class LeaveRequestService : ILeaveRequestService
             throw new InvalidOperationException("overlapping_leave_request");
 
         // 2) Balance check that also reserves days held by Draft/Pending requests of the same
-        // type. Unpaid is included here too now that it carries a real (if often zero) cap.
+        // type. A missing balance row is provisioned on the fly - it is not a user error,
+        // and Sick/Unpaid now carry no cap (null TotalDays) so the check below is skipped
+        // for them entirely.
         if (leaveType == "Annual" || leaveType == "Sick" || leaveType == "Unpaid")
         {
             var year = startDate.Year;
-            var balance = await _unitOfWork.LeaveBalances.FirstOrDefaultAsync(
-                lb => lb.EmployeeId == employeeId && lb.LeaveType == leaveType && lb.Year == year,
-                cancellationToken);
-
-            if (balance == null)
-                throw new InvalidOperationException("insufficient_leave_balance");
+            var balance = await _leaveBalanceProvisioningService.GetOrCreateAsync(employeeId, leaveType, year, cancellationToken);
 
             if (balance.TotalDays.HasValue)
             {

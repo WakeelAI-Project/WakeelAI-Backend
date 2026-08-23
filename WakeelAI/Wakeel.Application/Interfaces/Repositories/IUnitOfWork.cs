@@ -40,6 +40,11 @@ public interface IUnitOfWork : IDisposable
     ILeaveBalanceRepository LeaveBalances { get; }
 
     /// <summary>
+    /// Gets the repository for <see cref="Wakeel.Domain.Entities.LeaveEntitlement"/> entities.
+    /// </summary>
+    ILeaveEntitlementRepository LeaveEntitlements { get; }
+
+    /// <summary>
     /// Gets the repository for <see cref="Wakeel.Domain.Entities.LeaveRequest"/> entities.
     /// </summary>
     ILeaveRequestRepository LeaveRequests { get; }

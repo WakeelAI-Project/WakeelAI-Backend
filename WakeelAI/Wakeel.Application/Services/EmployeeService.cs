@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Wakeel.Application.DTOs.Employees;
 using Wakeel.Application.Interfaces;
 using Wakeel.Application.Interfaces.Repositories;
+using Wakeel.Application.Interfaces.Services;
 using Wakeel.Domain.Entities;
 using Wakeel.Domain.Enums;
 
@@ -19,14 +20,25 @@ public class EmployeeService : IEmployeeService
     private readonly ILogger<EmployeeService> _logger;
     private readonly IEmailSender _emailSender;
     private readonly IResourceLoader _resourceLoader;
+    private readonly ILeaveBalanceProvisioningService _leaveBalanceProvisioningService;
+    private readonly IAuditLogService _auditLogService;
 
-    public EmployeeService(IUnitOfWork unitOfWork, IPasswordHasher passwordHasher, ILogger<EmployeeService> logger, IEmailSender emailSender, IResourceLoader resourceLoader)
+    public EmployeeService(
+        IUnitOfWork unitOfWork,
+        IPasswordHasher passwordHasher,
+        ILogger<EmployeeService> logger,
+        IEmailSender emailSender,
+        IResourceLoader resourceLoader,
+        ILeaveBalanceProvisioningService leaveBalanceProvisioningService,
+        IAuditLogService auditLogService)
     {
         _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
         _passwordHasher = passwordHasher ?? throw new ArgumentNullException(nameof(passwordHasher));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _emailSender = emailSender ?? throw new ArgumentNullException(nameof(emailSender));
         _resourceLoader = resourceLoader ?? throw new ArgumentNullException(nameof(resourceLoader));
+        _leaveBalanceProvisioningService = leaveBalanceProvisioningService ?? throw new ArgumentNullException(nameof(leaveBalanceProvisioningService));
+        _auditLogService = auditLogService ?? throw new ArgumentNullException(nameof(auditLogService));
     }
 
     public async Task<CreateEmployeeResponse> CreateEmployeeAsync(Guid actorUserId, Guid companyId, CreateEmployeeRequest request, CancellationToken cancellationToken = default)
@@ -77,20 +89,12 @@ public class EmployeeService : IEmployeeService
 
         await _unitOfWork.EmployeeProfiles.AddAsync(profile, cancellationToken);
 
-        var currentYear = DateTime.UtcNow.Year;
-        var leaveBalances = new[]
-        {
-            new LeaveBalance { Id = Guid.NewGuid(), EmployeeId = profile.UserId, LeaveType = "Annual", TotalDays = 15, UsedDays = 0, Year = currentYear },
-            new LeaveBalance { Id = Guid.NewGuid(), EmployeeId = profile.UserId, LeaveType = "Sick", TotalDays = 10, UsedDays = 0, Year = currentYear },
-            // Starts at 0, not null: no employee has an unpaid-leave entitlement by
-            // default, HR grants one explicitly by raising TotalDays. A null total
-            // used to mean "uncapped", which read as "Unlimited" to every employee.
-            new LeaveBalance { Id = Guid.NewGuid(), EmployeeId = profile.UserId, LeaveType = "Unpaid", TotalDays = 0, UsedDays = 0, Year = currentYear }
-        };
-
-        foreach (var leaveBalance in leaveBalances)
-            await _unitOfWork.LeaveBalances.AddAsync(leaveBalance, cancellationToken);
-
+        // The provisioning service resolves an employee's HireDate by querying
+        // EmployeeProfiles, which - unlike the change tracker - only sees rows that have
+        // already been persisted. Save now so the profile just added above is visible to
+        // that lookup, then provision the hire year's balances and save again.
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await _leaveBalanceProvisioningService.EnsureYearAsync(profile.UserId, profile.HireDate.Year, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         // send email with credentials
@@ -212,6 +216,47 @@ public class EmployeeService : IEmployeeService
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return await GetEmployeeAsync(companyId, userId, cancellationToken);
+    }
+
+    /// <summary>
+    /// HR manual override of a leave balance's cap for one year. This is the mechanism for
+    /// the two statutory Annual tiers this system does not compute automatically (age 50+,
+    /// disability - see LeaveBalanceProvisioningService), and for any other one-off HR
+    /// adjustment.
+    /// </summary>
+    public async Task<EmployeeDetailResponse?> AdjustLeaveBalanceAsync(Guid companyId, Guid actorUserId, Guid recordId, string leaveType, AdjustLeaveBalanceRequest request, CancellationToken cancellationToken = default)
+    {
+        var profile = await _resourceLoader.GetEmployeeProfileAsync(recordId, cancellationToken);
+        if (profile is null)
+            return null;
+
+        var user = await _resourceLoader.GetUserAsync(profile.UserId, cancellationToken);
+        if (user is null || user.CompanyId != companyId)
+            return null;
+
+        var balance = await _leaveBalanceProvisioningService.GetOrCreateAsync(recordId, leaveType, request.Year, cancellationToken);
+
+        if (request.TotalDays.HasValue && request.TotalDays.Value < balance.UsedDays)
+            throw new InvalidOperationException("validation_error");
+
+        balance.TotalDays = request.TotalDays;
+        _unitOfWork.LeaveBalances.Update(balance);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        try
+        {
+            await _auditLogService.LogActionAsync(
+                actorUserId,
+                "LEAVE_BALANCE_ADJUSTED",
+                $"HR set {leaveType} leave balance for {user.FullName} ({request.Year}) to " +
+                (request.TotalDays.HasValue ? $"{request.TotalDays.Value} days" : "uncapped"));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to write LEAVE_BALANCE_ADJUSTED audit entry for employee {RecordId}", recordId);
+        }
+
+        return await GetEmployeeAsync(companyId, recordId, cancellationToken);
     }
 
     public async Task<EmployeeListResponse> ListEmployeesAsync(Guid companyId, string? status, string? search, int page, int limit, CancellationToken cancellationToken = default)

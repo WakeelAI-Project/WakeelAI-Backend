@@ -23,6 +23,7 @@ public static class ApplicationServiceCollectionExtensions
 
         // Register newly implemented user and employee services
         services.AddScoped<IUserService, UserService>();
+        services.AddScoped<ILeaveBalanceProvisioningService, LeaveBalanceProvisioningService>();
         services.AddScoped<IEmployeeService, EmployeeService>();
         services.AddScoped<ICompanyService, CompanyService>();
         services.AddScoped<IDepartmentService, DepartmentService>();

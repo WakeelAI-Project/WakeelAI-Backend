@@ -44,7 +44,8 @@ public class LeaveRequestServiceTests
         unitOfWorkMock.Setup(u => u.LeaveRequests.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveRequest, bool>>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(existingRequest);
 
-        var service = new LeaveRequestService(unitOfWorkMock.Object, fileServiceMock.Object, emailSenderMock.Object, loggerMock.Object, auditLogServiceMock.Object);
+        var leaveBalanceProvisioningService = new LeaveBalanceProvisioningService(unitOfWorkMock.Object);
+        var service = new LeaveRequestService(unitOfWorkMock.Object, fileServiceMock.Object, emailSenderMock.Object, loggerMock.Object, auditLogServiceMock.Object, leaveBalanceProvisioningService);
 
         var dto = new CreateLeaveRequestDto
         {
@@ -96,7 +97,8 @@ public class LeaveRequestServiceTests
         unitOfWorkMock.Setup(u => u.LeaveRequests.FindAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveRequest, bool>>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(activeRequests);
 
-        var service = new LeaveRequestService(unitOfWorkMock.Object, fileServiceMock.Object, emailSenderMock.Object, loggerMock.Object, auditLogServiceMock.Object);
+        var leaveBalanceProvisioningService = new LeaveBalanceProvisioningService(unitOfWorkMock.Object);
+        var service = new LeaveRequestService(unitOfWorkMock.Object, fileServiceMock.Object, emailSenderMock.Object, loggerMock.Object, auditLogServiceMock.Object, leaveBalanceProvisioningService);
 
         var dto = new CreateLeaveRequestDto
         {
@@ -109,6 +111,49 @@ public class LeaveRequestServiceTests
         var act = async () => await service.CreateDraftAsync(employeeId, companyId, dto, null);
 
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("insufficient_leave_balance");
+    }
+
+    [Fact]
+    public async Task CreateDraftAsync_UnpaidLeaveWithNoExistingBalanceRow_SucceedsBecauseUnpaidIsUncapped()
+    {
+        // FIX-01: a missing balance row used to throw insufficient_leave_balance
+        // unconditionally. It must now provision one instead - and since Unpaid is
+        // uncapped (TotalDays = null), any length of Unpaid request should succeed.
+        var unitOfWorkMock = new Mock<IUnitOfWork>();
+        var fileServiceMock = new Mock<IFileService>();
+        var emailSenderMock = new Mock<IEmailSender>();
+        var loggerMock = new Mock<ILogger<LeaveRequestService>>();
+        var auditLogServiceMock = new Mock<IAuditLogService>();
+
+        var employeeId = Guid.NewGuid();
+        var companyId = Guid.NewGuid();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+        unitOfWorkMock.Setup(u => u.LeaveRequests.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveRequest, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((LeaveRequest?)null);
+        unitOfWorkMock.Setup(u => u.LeaveBalances.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveBalance, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((LeaveBalance?)null);
+        unitOfWorkMock.Setup(u => u.LeaveEntitlements.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveEntitlement, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new LeaveEntitlement { LeaveType = "Unpaid", DefaultDays = null });
+        unitOfWorkMock.Setup(u => u.EmployeeProfiles.GetByUserIdAsync(employeeId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new EmployeeProfile { UserId = employeeId, HireDate = DateOnly.FromDateTime(DateTime.UtcNow.AddYears(-2)) });
+
+        var leaveBalanceProvisioningService = new LeaveBalanceProvisioningService(unitOfWorkMock.Object);
+        var service = new LeaveRequestService(unitOfWorkMock.Object, fileServiceMock.Object, emailSenderMock.Object, loggerMock.Object, auditLogServiceMock.Object, leaveBalanceProvisioningService);
+
+        var dto = new CreateLeaveRequestDto
+        {
+            LeaveType = "Unpaid",
+            StartDate = today.AddDays(10).ToString("yyyy-MM-dd"),
+            EndDate = today.AddDays(40).ToString("yyyy-MM-dd"), // 31 days - would fail any finite cap
+            Reason = "Personal matters"
+        };
+
+        var result = await service.CreateDraftAsync(employeeId, companyId, dto, null);
+
+        result.LeaveType.Should().Be("Unpaid");
+        result.Status.Should().Be("Draft");
+        unitOfWorkMock.Verify(u => u.LeaveBalances.AddAsync(It.Is<LeaveBalance>(lb => lb.LeaveType == "Unpaid" && lb.TotalDays == null), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -146,7 +191,8 @@ public class LeaveRequestServiceTests
         unitOfWorkMock.Setup(u => u.Users.GetByIdAsync(employeeId, It.IsAny<CancellationToken>())).ReturnsAsync(employeeUser);
         unitOfWorkMock.Setup(u => u.Users.GetByIdAsync(hrUserId, It.IsAny<CancellationToken>())).ReturnsAsync(hrUser);
 
-        var service = new LeaveRequestService(unitOfWorkMock.Object, fileServiceMock.Object, emailSenderMock.Object, loggerMock.Object, auditLogServiceMock.Object);
+        var leaveBalanceProvisioningService = new LeaveBalanceProvisioningService(unitOfWorkMock.Object);
+        var service = new LeaveRequestService(unitOfWorkMock.Object, fileServiceMock.Object, emailSenderMock.Object, loggerMock.Object, auditLogServiceMock.Object, leaveBalanceProvisioningService);
 
         var dto = new ReviewLeaveRequestDto { Status = "Rejected", HrNote = "Try again later" };
 

@@ -207,6 +207,32 @@ public class EmployeesController(IEmployeeService employeeService, IFileService 
     }
 
     [Authorize(Roles = "HR_Manager")]
+    [HttpPut("{recordId:guid}/leave-balances/{leaveType}")]
+    public async Task<IActionResult> AdjustLeaveBalance([FromRoute] Guid recordId, [FromRoute] string leaveType, [FromBody] AdjustLeaveBalanceRequest request, CancellationToken cancellationToken)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(new ApiErrorResponse { Error = "validation_error", Message = "Invalid payload.", Status = 400 });
+
+        var companyIdClaim = User.FindFirst("company_id")?.Value;
+        var userIdClaim = User.FindFirst("user_id")?.Value;
+        if (!Guid.TryParse(companyIdClaim, out var companyId) || !Guid.TryParse(userIdClaim, out var actorUserId))
+            return Forbid();
+
+        try
+        {
+            var updated = await employeeService.AdjustLeaveBalanceAsync(companyId, actorUserId, recordId, leaveType, request, cancellationToken);
+            if (updated is null)
+                return NotFound(new ApiErrorResponse { Error = "employee_not_found", Message = "Employee not found.", Status = 404 });
+
+            return Ok(updated);
+        }
+        catch (InvalidOperationException ex) when (ex.Message == "validation_error")
+        {
+            return BadRequest(new ApiErrorResponse { Error = "validation_error", Message = "total_days cannot be less than days already used.", Status = 400 });
+        }
+    }
+
+    [Authorize(Roles = "HR_Manager")]
     [HttpDelete("{recordId:guid}")]
     public async Task<IActionResult> Deactivate([FromRoute] Guid recordId, CancellationToken cancellationToken)
     {
