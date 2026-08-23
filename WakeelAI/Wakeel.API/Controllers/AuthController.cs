@@ -17,6 +17,7 @@ public class AuthController(IAuthService authService, IMemoryCache cache) : Cont
     private const int ForgotPasswordMaxAttemptsPerEmail = 3;
     private const int ForgotPasswordMaxAttemptsPerIp = 10;
 
+    [AllowAnonymous]
     [HttpPost("register-company")]
     [ProducesResponseType(typeof(RegisterCompanyResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
@@ -61,6 +62,7 @@ public class AuthController(IAuthService authService, IMemoryCache cache) : Cont
         return Created(string.Empty, data);
     }
 
+    [AllowAnonymous]
     [HttpPost("login")]
     [ProducesResponseType(typeof(LoginResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status401Unauthorized)]
@@ -104,6 +106,7 @@ public class AuthController(IAuthService authService, IMemoryCache cache) : Cont
         return Ok(data);
     }
 
+    [AllowAnonymous]
     [HttpPost("forgot-password")]
     [ProducesResponseType(typeof(ForgotPasswordResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
@@ -137,6 +140,7 @@ public class AuthController(IAuthService authService, IMemoryCache cache) : Cont
         });
     }
 
+    [AllowAnonymous]
     [HttpPost("reset-password")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
@@ -157,6 +161,7 @@ public class AuthController(IAuthService authService, IMemoryCache cache) : Cont
         return Ok();
     }
 
+    [AllowAnonymous]
     [HttpPost("verify-otp")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
@@ -177,6 +182,7 @@ public class AuthController(IAuthService authService, IMemoryCache cache) : Cont
         return Ok();
     }
 
+    [AllowAnonymous]
     [HttpPost("refresh")]
     [ProducesResponseType(typeof(RefreshTokenResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]

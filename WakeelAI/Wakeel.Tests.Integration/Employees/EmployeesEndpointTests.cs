@@ -135,6 +135,26 @@ public class EmployeesEndpointTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
+    public async Task Create_GivenNoToken_ShouldReturn401()
+    {
+        // FIX-S3: Create used to carry no [Authorize] attribute at all - it was only safe
+        // because it manually checked claims that an anonymous caller would never have.
+        // This asserts the endpoint now rejects unauthenticated calls declaratively.
+        var response = await _client.PostAsJsonAsync("/api/employees", new
+        {
+            full_name = "Should Not Be Created",
+            email = $"emp_{Guid.NewGuid():N}@integrationtest.local",
+            job_title = "Analyst",
+            department_id = Guid.NewGuid(),
+            hire_date = "2026-01-01",
+            salary = 12000,
+            contract_type = "Full-Time"
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
     public async Task Create_GivenUnknownDepartment_ShouldReturn404()
     {
         var (hrToken, _, _) = await SeedCompanyWithHrAsync();

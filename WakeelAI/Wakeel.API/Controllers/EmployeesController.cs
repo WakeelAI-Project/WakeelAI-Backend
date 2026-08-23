@@ -19,6 +19,7 @@ public class EmployeesController(IEmployeeService employeeService, IFileService 
     private const long MaxPhotoSizeBytes = 5 * 1024 * 1024; // 5 MB
 
     [HttpPost]
+    [Authorize(Roles = "HR_Manager")]
     public async Task<IActionResult> Create([FromBody] CreateEmployeeRequest request, CancellationToken cancellationToken)
     {
         if (!ModelState.IsValid)

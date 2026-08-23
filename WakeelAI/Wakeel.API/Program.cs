@@ -19,15 +19,23 @@ public partial class Program
         builder.Services.AddEndpointsApiExplorer();
         builder.Services.AddHealthChecks();
 
-        // TODO: This permissive CORS policy is for development/testing only. 
-        // It must be restricted to specific frontend origins before production.
+        // Only the origins configured under Cors:AllowedOrigins may call this API from a
+        // browser. In Development, an empty list falls back to the local Vite dev server so
+        // the web app keeps working out of the box without committing a real origin.
+        var configuredOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+        if (configuredOrigins.Length == 0 && builder.Environment.IsDevelopment())
+        {
+            configuredOrigins = ["http://localhost:5173"];
+        }
+
         builder.Services.AddCors(options =>
         {
-            options.AddPolicy("AllowAll", policy =>
+            options.AddPolicy("AllowConfiguredOrigins", policy =>
             {
-                policy.AllowAnyOrigin()
+                policy.WithOrigins(configuredOrigins)
+                      .AllowAnyHeader()
                       .AllowAnyMethod()
-                      .AllowAnyHeader();
+                      .AllowCredentials();
             });
         });
 
@@ -107,7 +115,7 @@ public partial class Program
         
         app.UseStaticFiles();
 
-        app.UseCors("AllowAll");
+        app.UseCors("AllowConfiguredOrigins");
 
         app.UseAuthentication();
         // Internal M2M PSK middleware — secures all /api/ai/ routes.

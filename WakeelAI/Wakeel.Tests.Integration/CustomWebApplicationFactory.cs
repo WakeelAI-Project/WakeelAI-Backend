@@ -32,6 +32,14 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IDisp
         Environment.SetEnvironmentVariable(
             "Jwt__SecretKey",
             "test-signing-key-for-integration-tests-only-32+chars");
+
+        // FIX-S3: Program.cs reads Cors:AllowedOrigins synchronously while registering
+        // services, before this factory's ConfigureAppConfiguration delta is merged in
+        // (same timing issue as Jwt:SecretKey above) - an environment variable is the
+        // only provider available that early.
+        Environment.SetEnvironmentVariable(
+            "Cors__AllowedOrigins__0",
+            "https://allowed.integrationtest.local");
     }
 
     private readonly string _testDatabaseName = $"WakeelTestDb_{Guid.NewGuid():N}";
