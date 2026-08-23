@@ -22,10 +22,11 @@ public class AuditLogsController : ControllerBase
     public async Task<IActionResult> GetAuditLogs(
         [FromQuery] string? action,
         [FromQuery] Guid? userId,
+        [FromQuery] string? userName,
         [FromQuery] int page = 1,
         [FromQuery] int limit = 20)
     {
-        var (logs, total) = await _auditLogService.GetAuditLogsAsync(page, limit, action, userId);
+        var (logs, total) = await _auditLogService.GetAuditLogsAsync(page, limit, action, userId, userName);
 
         return Ok(new
         {

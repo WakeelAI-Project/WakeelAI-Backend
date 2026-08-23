@@ -7,7 +7,7 @@ namespace Wakeel.Application.Interfaces;
 
 public interface IAuditLogService
 {
-    Task<(IEnumerable<AuditLogDto> Data, int Total)> GetAuditLogsAsync(int page, int limit, string? action, Guid? userId);
+    Task<(IEnumerable<AuditLogDto> Data, int Total)> GetAuditLogsAsync(int page, int limit, string? action, Guid? userId, string? userName = null);
     
     Task LogActionAsync(Guid? userId, string action, string details);
 }
