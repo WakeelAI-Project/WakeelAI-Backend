@@ -20,8 +20,21 @@ namespace Wakeel.Tests.Integration;
 public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IDisposable
 {
     private readonly string _testDatabaseName = $"WakeelTestDb_{Guid.NewGuid():N}";
-    private string TestConnectionString =>
-        $"Server=(localdb)\\mssqllocaldb;Database={_testDatabaseName};Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=True;";
+    private string TestConnectionString
+    {
+        get
+        {
+            var envConnection = Environment.GetEnvironmentVariable("TEST_CONNECTION_STRING")
+                ?? Environment.GetEnvironmentVariable("ConnectionStrings__TestConnection");
+
+            if (!string.IsNullOrWhiteSpace(envConnection))
+            {
+                return envConnection;
+            }
+
+            return $"Server=(localdb)\\mssqllocaldb;Database={_testDatabaseName};Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=True;";
+        }
+    }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {

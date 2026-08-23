@@ -17,6 +17,9 @@ public class AuditLogDto
     [JsonPropertyName("user_id")]
     public Guid? UserId { get; set; }
 
+    [JsonPropertyName("user_name")]
+    public string? UserName { get; set; }
+
     [JsonPropertyName("created_at")]
     public DateTime CreatedAt { get; set; }
 }

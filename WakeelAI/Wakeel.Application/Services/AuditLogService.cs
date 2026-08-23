@@ -33,19 +33,36 @@ public class AuditLogService : IAuditLogService
 
         var total = query.Count();
 
-        var logs = query
+        var pagedLogs = query
             .OrderByDescending(a => a.CreatedAt)
             .Skip((page - 1) * limit)
             .Take(limit)
-            .Select(a => new AuditLogDto
-            {
-                Id = a.Id,
-                Action = a.Action,
-                Details = a.Details,
-                UserId = a.UserId,
-                CreatedAt = a.CreatedAt
-            })
             .ToList();
+
+        // Resolve unique user IDs to names in a single batch lookup
+        var distinctUserIds = pagedLogs
+            .Where(a => a.UserId.HasValue)
+            .Select(a => a.UserId!.Value)
+            .Distinct()
+            .ToList();
+
+        var userNameMap = new Dictionary<Guid, string>();
+        foreach (var uid in distinctUserIds)
+        {
+            var user = await _unitOfWork.Users.GetByIdAsync(uid);
+            if (user is not null && !string.IsNullOrWhiteSpace(user.FullName))
+                userNameMap[uid] = user.FullName;
+        }
+
+        var logs = pagedLogs.Select(a => new AuditLogDto
+        {
+            Id = a.Id,
+            Action = a.Action,
+            Details = a.Details,
+            UserId = a.UserId,
+            UserName = a.UserId.HasValue && userNameMap.TryGetValue(a.UserId.Value, out var name) ? name : null,
+            CreatedAt = a.CreatedAt
+        }).ToList();
 
         return (logs, total);
     }
