@@ -43,7 +43,7 @@ public class UsersController(IUserService userService) : ControllerBase
         }
     }
 
-    [Authorize(Roles = "HR_Manager")]
+    [Authorize(Roles = "Company_Owner,HR_Manager")]
     [HttpGet("me")]
     public async Task<IActionResult> GetMe(CancellationToken cancellationToken)
     {
