@@ -117,6 +117,49 @@ public class TemplatesController : ControllerBase
         }
     }
 
+    [HttpPost("generate-clauses")]
+    [ProducesResponseType(typeof(NodeTemplateClausesResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status502BadGateway)]
+    public async Task<IActionResult> GenerateClausesWithoutTemplate(
+        [FromBody] GenerateClausesRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(new ApiErrorResponse { Error = "validation_error", Message = "Invalid payload.", Status = 400 });
+
+        var language = (request.Language ?? "en").Trim().ToLowerInvariant();
+        if (language != "en" && language != "ar")
+            return BadRequest(new ApiErrorResponse { Error = "validation_error", Message = "language must be 'en' or 'ar'.", Status = 400 });
+
+        if (!request.IncludeLaborLaw && !request.IncludeCompanyPolicy)
+            return BadRequest(new ApiErrorResponse { Error = "validation_error", Message = "At least one of include_labor_law or include_company_policy must be true.", Status = 400 });
+
+        var effectiveType = (request.ClauseType ?? request.DocumentType)?.Trim();
+        if (string.IsNullOrEmpty(effectiveType))
+            effectiveType = "Contract";
+
+        if (!_supportedDocumentTypes.Contains(effectiveType))
+            return BadRequest(new ApiErrorResponse { Error = "validation_error", Message = "clause_type must be one of: Contract, Warning_Letter, Termination_Letter.", Status = 400 });
+
+        var companyIdClaim = User.FindFirstValue("company_id");
+        var userIdClaim    = User.FindFirstValue("user_id");
+        var role           = User.FindFirstValue(ClaimTypes.Role) ?? User.FindFirstValue("role");
+        if (!Guid.TryParse(companyIdClaim, out var companyId) || !Guid.TryParse(userIdClaim, out var userId) || string.IsNullOrWhiteSpace(role))
+            return Forbid();
+
+        return await SendGenerateClausesToAiAsync(
+            templateId: Guid.NewGuid().ToString(),
+            documentType: effectiveType,
+            templateName: request.TemplateName ?? effectiveType,
+            companyId: companyId,
+            userId: userId,
+            role: role,
+            language: language,
+            request: request,
+            cancellationToken: cancellationToken);
+    }
+
     [HttpPost("{template_id:guid}/generate-clauses")]
     [ProducesResponseType(typeof(NodeTemplateClausesResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
@@ -137,7 +180,7 @@ public class TemplatesController : ControllerBase
         if (!request.IncludeLaborLaw && !request.IncludeCompanyPolicy)
             return BadRequest(new ApiErrorResponse { Error = "validation_error", Message = "At least one of include_labor_law or include_company_policy must be true.", Status = 400 });
 
-        var clauseType = request.ClauseType?.Trim();
+        var clauseType = (request.ClauseType ?? request.DocumentType)?.Trim();
         if (!string.IsNullOrEmpty(clauseType) && !_supportedDocumentTypes.Contains(clauseType))
             return BadRequest(new ApiErrorResponse { Error = "validation_error", Message = "clause_type must be one of: Contract, Warning_Letter, Termination_Letter.", Status = 400 });
 
@@ -161,11 +204,36 @@ public class TemplatesController : ControllerBase
             return NotFound(new { error = new { code = "template_not_found", message = "Template not found." } });
         }
 
+        var effectiveType = string.IsNullOrEmpty(clauseType) ? template.DocumentType : clauseType;
+
+        return await SendGenerateClausesToAiAsync(
+            templateId: template.Id.ToString(),
+            documentType: effectiveType,
+            templateName: template.Name,
+            companyId: companyId,
+            userId: userId,
+            role: role,
+            language: language,
+            request: request,
+            cancellationToken: cancellationToken);
+    }
+
+    private async Task<IActionResult> SendGenerateClausesToAiAsync(
+        string templateId,
+        string documentType,
+        string templateName,
+        Guid companyId,
+        Guid userId,
+        string role,
+        string language,
+        GenerateClausesRequest request,
+        CancellationToken cancellationToken)
+    {
         var nodePayload = new
         {
-            templateId           = template.Id.ToString(),
-            documentType         = string.IsNullOrEmpty(clauseType) ? template.DocumentType : clauseType,
-            templateName         = template.Name,
+            templateId           = templateId,
+            documentType         = documentType,
+            templateName         = templateName,
             companyId            = companyId.ToString(),   // trusted: from JWT
             language             = language,
             includeLaborLaw      = request.IncludeLaborLaw,
@@ -193,7 +261,7 @@ public class TemplatesController : ControllerBase
         }
         catch (TaskCanceledException)
         {
-            _logger.LogError("GenerateClauses: AI service timed out for TemplateId={TemplateId}.", template_id);
+            _logger.LogError("GenerateClauses: AI service timed out for TemplateId={TemplateId}.", templateId);
             return StatusCode(StatusCodes.Status504GatewayTimeout,
                 new ApiErrorResponse { Error = "ai_timeout", Message = "The AI service did not respond in time. Please try again.", Status = 504 });
         }
@@ -207,7 +275,7 @@ public class TemplatesController : ControllerBase
         if (!nodeResponse.IsSuccessStatusCode)
         {
             _logger.LogWarning("GenerateClauses: AI service returned {StatusCode} for TemplateId={TemplateId}.",
-                nodeResponse.StatusCode, template_id);
+                nodeResponse.StatusCode, templateId);
             // Do not leak internal AI error bodies.
             return StatusCode((int)nodeResponse.StatusCode,
                 new ApiErrorResponse { Error = "ai_error", Message = "The AI service returned an error.", Status = (int)nodeResponse.StatusCode });

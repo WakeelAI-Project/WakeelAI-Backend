@@ -4,6 +4,9 @@ namespace Wakeel.Application.DTOs.Templates;
 
 public class UpdateTemplateRequest
 {
+    [JsonPropertyName("document_type")]
+    public string? DocumentType { get; set; }
+
     [JsonPropertyName("name")]
     public string? Name { get; set; }
 
