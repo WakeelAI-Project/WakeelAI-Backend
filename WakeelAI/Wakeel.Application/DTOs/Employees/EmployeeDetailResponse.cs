@@ -18,6 +18,7 @@ public record EmployeeDetailResponse
     [JsonPropertyName("salary")] public decimal Salary { get; init; }
     [JsonPropertyName("contract_type")] public string ContractType { get; init; } = string.Empty;
     [JsonPropertyName("employment_status")] public string EmploymentStatus { get; init; } = string.Empty;
+    [JsonPropertyName("timezone_id")] public string? TimeZoneId { get; init; }
     [JsonPropertyName("leave_balance")] public LeaveBalanceSummary? LeaveBalance { get; init; }
     [JsonPropertyName("current_leave")] public CurrentLeaveInfo? CurrentLeave { get; init; }
 }

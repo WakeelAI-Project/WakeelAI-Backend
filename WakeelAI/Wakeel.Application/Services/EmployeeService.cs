@@ -137,7 +137,7 @@ public class EmployeeService : IEmployeeService
         var balances = await _unitOfWork.LeaveBalances.FindAsync(
             lb => lb.EmployeeId == profile.UserId && lb.Year == currentYear, cancellationToken);
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = ResolveEmployeeToday(profile.TimeZoneId);
         var activeLeave = await _unitOfWork.LeaveRequests.FirstOrDefaultAsync(
             lr => lr.EmployeeId == profile.UserId && lr.Status == "Approved" && lr.StartDate <= today && lr.EndDate >= today,
             cancellationToken);
@@ -157,6 +157,7 @@ public class EmployeeService : IEmployeeService
             Salary = profile.Salary,
             ContractType = profile.ContractType,
             EmploymentStatus = GetEmploymentStatus(user.IsActive),
+            TimeZoneId = profile.TimeZoneId,
             LeaveBalance = new LeaveBalanceSummary
             {
                 Annual = MapLeaveBalance(balances, "Annual"),
@@ -188,6 +189,26 @@ public class EmployeeService : IEmployeeService
 
         user.PhotoUrl = null;
         _unitOfWork.Users.Update(user);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return await GetEmployeeAsync(companyId, userId, cancellationToken);
+    }
+
+    public async Task<EmployeeDetailResponse?> UpdateTimeZoneAsync(Guid companyId, Guid userId, string timeZoneId, CancellationToken cancellationToken = default)
+    {
+        if (!IsValidTimeZoneId(timeZoneId))
+            throw new InvalidOperationException("invalid_timezone");
+
+        var profile = await _resourceLoader.GetEmployeeProfileAsync(userId, cancellationToken);
+        if (profile is null)
+            return null;
+
+        var user = await _resourceLoader.GetUserAsync(profile.UserId, cancellationToken);
+        if (user is null || user.CompanyId != companyId)
+            return null;
+
+        profile.TimeZoneId = timeZoneId;
+        _unitOfWork.EmployeeProfiles.Update(profile);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return await GetEmployeeAsync(companyId, userId, cancellationToken);
@@ -378,4 +399,48 @@ public class EmployeeService : IEmployeeService
 
     private static bool IsInFuture(DateTime? date) =>
         date.HasValue && DateOnly.FromDateTime(date.Value) > DateOnly.FromDateTime(DateTime.UtcNow);
+
+    /// Resolves "today" for date-sensitive calculations (currently only
+    /// CurrentLeave's ElapsedDays) in the employee's own time zone rather
+    /// than UTC, so the day boundary lands at their local midnight instead
+    /// of UTC midnight. Falls back to UTC if the employee has no synced
+    /// time zone yet, or if the stored value somehow isn't a valid IANA id
+    /// (e.g. edited directly in the database) — this must never throw.
+    private static DateOnly ResolveEmployeeToday(string? timeZoneId)
+    {
+        if (string.IsNullOrWhiteSpace(timeZoneId))
+            return DateOnly.FromDateTime(DateTime.UtcNow);
+
+        try
+        {
+            var timeZone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+            var localNow = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, timeZone);
+            return DateOnly.FromDateTime(localNow);
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            return DateOnly.FromDateTime(DateTime.UtcNow);
+        }
+        catch (InvalidTimeZoneException)
+        {
+            return DateOnly.FromDateTime(DateTime.UtcNow);
+        }
+    }
+
+    private static bool IsValidTimeZoneId(string timeZoneId)
+    {
+        try
+        {
+            TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+            return true;
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            return false;
+        }
+        catch (InvalidTimeZoneException)
+        {
+            return false;
+        }
+    }
 }
