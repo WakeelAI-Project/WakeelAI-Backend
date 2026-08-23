@@ -61,6 +61,56 @@ public class LeaveRequestServiceTests
     }
 
     [Fact]
+    public async Task CreateDraftAsync_OverlapCheck_NeverConsidersDraftRequestsBlocking()
+    {
+        // FIX-07: an abandoned Draft used to block the same dates forever. Only Pending
+        // and Approved requests may block an overlap now.
+        var unitOfWorkMock = new Mock<IUnitOfWork>();
+        var fileServiceMock = new Mock<IFileService>();
+        var emailSenderMock = new Mock<IEmailSender>();
+        var loggerMock = new Mock<ILogger<LeaveRequestService>>();
+        var auditLogServiceMock = new Mock<IAuditLogService>();
+
+        System.Linq.Expressions.Expression<Func<LeaveRequest, bool>>? capturedPredicate = null;
+        unitOfWorkMock
+            .Setup(u => u.LeaveRequests.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveRequest, bool>>>(), It.IsAny<CancellationToken>()))
+            .Callback<System.Linq.Expressions.Expression<Func<LeaveRequest, bool>>, CancellationToken>((predicate, _) => capturedPredicate = predicate)
+            .ReturnsAsync((LeaveRequest?)null);
+        unitOfWorkMock
+            .Setup(u => u.LeaveBalances.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveBalance, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((LeaveBalance?)null);
+        unitOfWorkMock
+            .Setup(u => u.LeaveEntitlements.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveEntitlement, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new LeaveEntitlement { LeaveType = "Unpaid", DefaultDays = null });
+
+        var employeeId = Guid.NewGuid();
+        var companyId = Guid.NewGuid();
+        unitOfWorkMock.Setup(u => u.EmployeeProfiles.GetByUserIdAsync(employeeId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new EmployeeProfile { UserId = employeeId, HireDate = DateOnly.FromDateTime(DateTime.UtcNow.AddYears(-2)) });
+
+        var leaveBalanceProvisioningService = new LeaveBalanceProvisioningService(unitOfWorkMock.Object);
+        var service = new LeaveRequestService(unitOfWorkMock.Object, fileServiceMock.Object, emailSenderMock.Object, loggerMock.Object, auditLogServiceMock.Object, leaveBalanceProvisioningService);
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var dto = new CreateLeaveRequestDto
+        {
+            LeaveType = "Unpaid",
+            StartDate = today.AddDays(3).ToString("yyyy-MM-dd"),
+            EndDate = today.AddDays(4).ToString("yyyy-MM-dd"),
+            Reason = "Personal"
+        };
+
+        // Should succeed - no Pending/Approved requests exist, only the mocked "any
+        // predicate returns null" stands in for "no blocking request found".
+        await service.CreateDraftAsync(employeeId, companyId, dto, null);
+
+        capturedPredicate.Should().NotBeNull();
+        var compiled = capturedPredicate!.Compile();
+        var draftOnDates = new LeaveRequest { EmployeeId = employeeId, Status = "Draft", StartDate = today.AddDays(3), EndDate = today.AddDays(4) };
+        compiled(draftOnDates).Should().BeFalse("a Draft must never be treated as blocking an overlap");
+    }
+
+    [Fact]
     public async Task CreateDraftAsync_ExceedsReservedDays_ThrowsInvalidOperationException()
     {
         var unitOfWorkMock = new Mock<IUnitOfWork>();

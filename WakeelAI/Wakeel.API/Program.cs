@@ -75,6 +75,8 @@ public partial class Program
         builder.Services.AddApplicationServices();
         builder.Services.AddInfrastructureServices(builder.Configuration);
 
+        builder.Services.AddHostedService<Wakeel.API.BackgroundServices.DailyMaintenanceBackgroundService>();
+
         var app = builder.Build();
 
         // Fail fast when a required secret is absent. Secrets are never committed:

@@ -5,6 +5,7 @@ using System.Threading;
 using Microsoft.Extensions.Logging;
 using System.Threading.Tasks;
 using Wakeel.Application.DTOs.LeaveRequests;
+using Wakeel.Application.Exceptions;
 using Wakeel.Application.Interfaces;
 using Wakeel.Application.Interfaces.Repositories;
 using Wakeel.Application.Interfaces.Services;
@@ -242,7 +243,8 @@ public class LeaveRequestService : ILeaveRequestService
         }
 
         request.Status = "Cancelled";
-        
+        request.CancelledAt = DateTime.UtcNow;
+
         _unitOfWork.LeaveRequests.Update(request);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
     }
@@ -358,19 +360,23 @@ public class LeaveRequestService : ILeaveRequestService
         CancellationToken cancellationToken)
     {
         // 1) Reject any request overlapping an existing active request (any leave type).
+        // A Draft is not a commitment - it must never block dates. Only Pending and
+        // Approved requests count, deliberately across leave types too (a person cannot
+        // be on two leaves at once).
         var overlapping = await _unitOfWork.LeaveRequests.FirstOrDefaultAsync(lr =>
             lr.EmployeeId == employeeId &&
-            (lr.Status == "Draft" || lr.Status == "Pending" || lr.Status == "Approved") &&
+            (lr.Status == "Pending" || lr.Status == "Approved") &&
             lr.StartDate <= endDate && lr.EndDate >= startDate,
             cancellationToken);
 
         if (overlapping != null)
-            throw new InvalidOperationException("overlapping_leave_request");
+            throw new OverlappingLeaveRequestException(overlapping.LeaveType, overlapping.StartDate, overlapping.EndDate, overlapping.Status);
 
-        // 2) Balance check that also reserves days held by Draft/Pending requests of the same
-        // type. A missing balance row is provisioned on the fly - it is not a user error,
-        // and Sick/Unpaid now carry no cap (null TotalDays) so the check below is skipped
-        // for them entirely.
+        // 2) Balance check that also reserves days held by Pending requests of the same
+        // type - a Draft reserves neither dates nor balance, for the same reason it
+        // cannot block an overlap above. A missing balance row is provisioned on the fly
+        // - it is not a user error, and Sick/Unpaid now carry no cap (null TotalDays) so
+        // the check below is skipped for them entirely.
         if (leaveType == "Annual" || leaveType == "Sick" || leaveType == "Unpaid")
         {
             var year = startDate.Year;
@@ -381,7 +387,7 @@ public class LeaveRequestService : ILeaveRequestService
                 var activeRequests = await _unitOfWork.LeaveRequests.FindAsync(lr =>
                     lr.EmployeeId == employeeId &&
                     lr.LeaveType == leaveType &&
-                    (lr.Status == "Draft" || lr.Status == "Pending") &&
+                    lr.Status == "Pending" &&
                     lr.StartDate.Year == year,
                     cancellationToken);
 

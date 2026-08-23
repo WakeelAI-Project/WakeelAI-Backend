@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using Wakeel.Application.Exceptions;
 
 namespace Wakeel.API.Middleware;
 
@@ -56,6 +57,17 @@ public class GlobalErrorHandlingMiddleware
 
     private static (int status, string error, string message) MapException(Exception ex)
     {
+        // Checked before the generic InvalidOperationException switch below (which it
+        // would also match, via inheritance) because it needs to build a message from
+        // the conflicting request's own details rather than a static string.
+        if (ex is OverlappingLeaveRequestException overlap)
+        {
+            var statusWord = overlap.ConflictingStatus == "Approved" ? "an approved" : "a pending";
+            return (StatusCodes.Status409Conflict, "overlapping_leave_request",
+                $"You already have {statusWord} {overlap.ConflictingLeaveType} leave from " +
+                $"{overlap.ConflictingStartDate:yyyy-MM-dd} to {overlap.ConflictingEndDate:yyyy-MM-dd} that overlaps these dates.");
+        }
+
         if (ex is InvalidOperationException ioe)
         {
             if (ioe.Message.StartsWith("email_send_failed", StringComparison.Ordinal))
