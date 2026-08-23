@@ -4,18 +4,17 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading.Tasks;
 using FluentAssertions;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Xunit;
 using Wakeel.API;
 using Wakeel.Application.DTOs.Departments;
 
 namespace Wakeel.Tests.Integration.Departments;
 
-public class DepartmentsEndpointTests : IClassFixture<WebApplicationFactory<Program>>
+public class DepartmentsEndpointTests : IClassFixture<CustomWebApplicationFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly CustomWebApplicationFactory _factory;
 
-    public DepartmentsEndpointTests(WebApplicationFactory<Program> factory)
+    public DepartmentsEndpointTests(CustomWebApplicationFactory factory)
     {
         _factory = factory;
     }
