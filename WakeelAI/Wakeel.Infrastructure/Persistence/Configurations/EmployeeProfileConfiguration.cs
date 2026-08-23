@@ -17,6 +17,7 @@ public class EmployeeProfileConfiguration : IEntityTypeConfiguration<EmployeePro
         builder.Property(ep => ep.NationalId).IsRequired(false);
         builder.Property(ep => ep.ContractType).IsRequired();
         builder.Property(ep => ep.HireDate).IsRequired();
+        builder.Property(ep => ep.TimeZoneId).IsRequired(false).HasMaxLength(100);
 
         // Configure standard precision and scale for Salary
         builder.Property(ep => ep.Salary)

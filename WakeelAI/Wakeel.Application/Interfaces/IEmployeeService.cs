@@ -14,4 +14,5 @@ public interface IEmployeeService
     Task<bool> DeactivateEmployeeAsync(Guid companyId, Guid recordId, CancellationToken cancellationToken = default);
     Task<EmployeeDetailResponse?> UpdatePhotoAsync(Guid companyId, Guid userId, string photoUrl, CancellationToken cancellationToken = default);
     Task<EmployeeDetailResponse?> RemovePhotoAsync(Guid companyId, Guid userId, CancellationToken cancellationToken = default);
+    Task<EmployeeDetailResponse?> UpdateTimeZoneAsync(Guid companyId, Guid userId, string timeZoneId, CancellationToken cancellationToken = default);
 }

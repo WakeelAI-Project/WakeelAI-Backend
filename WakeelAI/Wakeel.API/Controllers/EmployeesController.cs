@@ -164,6 +164,32 @@ public class EmployeesController(IEmployeeService employeeService, IFileService 
         return Ok(updated);
     }
 
+    [Authorize(Roles = "Employee")]
+    [HttpPatch("me/timezone")]
+    public async Task<IActionResult> UpdateMyTimeZone([FromBody] UpdateTimeZoneRequest request, CancellationToken cancellationToken)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(new ApiErrorResponse { Error = "validation_error", Message = "Invalid payload.", Status = 400 });
+
+        var companyIdClaim = User.FindFirst("company_id")?.Value;
+        var userIdClaim = User.FindFirst("user_id")?.Value;
+        if (!Guid.TryParse(companyIdClaim, out var companyId) || !Guid.TryParse(userIdClaim, out var userId))
+            return Forbid();
+
+        try
+        {
+            var updated = await employeeService.UpdateTimeZoneAsync(companyId, userId, request.TimeZoneId, cancellationToken);
+            if (updated is null)
+                return NotFound(new ApiErrorResponse { Error = "employee_not_found", Message = "Employee not found.", Status = 404 });
+
+            return Ok(updated);
+        }
+        catch (InvalidOperationException ex) when (ex.Message == "invalid_timezone")
+        {
+            return BadRequest(new ApiErrorResponse { Error = "invalid_timezone", Message = "timezone_id is not a recognized IANA time zone identifier.", Status = 400 });
+        }
+    }
+
     [Authorize(Roles = "HR_Manager")]
     [HttpGet("{recordId:guid}")]
     public async Task<IActionResult> Get([FromRoute] Guid recordId, CancellationToken cancellationToken)

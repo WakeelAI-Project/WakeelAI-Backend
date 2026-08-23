@@ -442,6 +442,151 @@ public class EmployeeServiceTests
         });
     }
 
+    [Fact]
+    public async Task GetEmployeeAsync_GivenEmployeeTimeZone_ShouldComputeElapsedDaysUsingThatZonesLocalDate()
+    {
+        // Arrange
+        var (profile, user) = CreateProfileAndUser();
+        // UTC+14 — the earliest time zone on Earth, so its local date differs
+        // from UTC's for most of every UTC day, making this reliably exercise
+        // the zone-aware path rather than coincidentally matching UTC.
+        profile.TimeZoneId = "Pacific/Kiritimati";
+
+        _employeeProfileRepositoryMock.Setup(r => r.GetByIdAsync(profile.UserId, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
+        _userRepositoryMock.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        var timeZone = TimeZoneInfo.FindSystemTimeZoneById(profile.TimeZoneId);
+        var localToday = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, timeZone));
+
+        var activeLeave = new LeaveRequest
+        {
+            Id = Guid.NewGuid(),
+            EmployeeId = profile.UserId,
+            CompanyId = user.CompanyId,
+            LeaveType = "Annual",
+            StartDate = localToday.AddDays(-2), // day 3 of a 5-day leave, in the employee's local date
+            EndDate = localToday.AddDays(2),
+            DaysRequested = 5,
+            Status = "Approved"
+        };
+        _leaveRequestRepositoryMock
+            .Setup(r => r.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveRequest, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(activeLeave);
+
+        // Act
+        var result = await _sut.GetEmployeeAsync(user.CompanyId, profile.UserId);
+
+        // Assert
+        result!.CurrentLeave.Should().NotBeNull();
+        result.CurrentLeave!.ElapsedDays.Should().Be(3);
+    }
+
+    [Fact]
+    public async Task GetEmployeeAsync_GivenInvalidStoredTimeZone_ShouldFallBackToUtcRatherThanThrow()
+    {
+        // Arrange — defends against corrupted/manually-edited data (an
+        // invalid IANA id here must never break the whole profile fetch).
+        var (profile, user) = CreateProfileAndUser();
+        profile.TimeZoneId = "Not/A/Real/Zone";
+
+        _employeeProfileRepositoryMock.Setup(r => r.GetByIdAsync(profile.UserId, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
+        _userRepositoryMock.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        var utcToday = DateOnly.FromDateTime(DateTime.UtcNow);
+        var activeLeave = new LeaveRequest
+        {
+            Id = Guid.NewGuid(),
+            EmployeeId = profile.UserId,
+            CompanyId = user.CompanyId,
+            LeaveType = "Annual",
+            StartDate = utcToday.AddDays(-1),
+            EndDate = utcToday.AddDays(1),
+            DaysRequested = 3,
+            Status = "Approved"
+        };
+        _leaveRequestRepositoryMock
+            .Setup(r => r.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveRequest, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(activeLeave);
+
+        // Act
+        var result = await _sut.GetEmployeeAsync(user.CompanyId, profile.UserId);
+
+        // Assert
+        result.Should().NotBeNull();
+        result!.CurrentLeave!.ElapsedDays.Should().Be(2);
+    }
+
+    // ------------------------------------------------------------
+    // UpdateTimeZoneAsync
+    // ------------------------------------------------------------
+
+    [Fact]
+    public async Task UpdateTimeZoneAsync_GivenValidIanaId_ShouldPersistAndReturnUpdatedDetail()
+    {
+        // Arrange
+        var (profile, user) = CreateProfileAndUser();
+        _employeeProfileRepositoryMock.Setup(r => r.GetByIdAsync(profile.UserId, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
+        _userRepositoryMock.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        // Act
+        var result = await _sut.UpdateTimeZoneAsync(user.CompanyId, user.Id, "Africa/Cairo");
+
+        // Assert
+        result.Should().NotBeNull();
+        profile.TimeZoneId.Should().Be("Africa/Cairo");
+        _employeeProfileRepositoryMock.Verify(r => r.Update(profile), Times.Once);
+        _unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateTimeZoneAsync_GivenInvalidTimeZoneId_ShouldThrowAndNotPersist()
+    {
+        // Arrange
+        var (profile, user) = CreateProfileAndUser();
+        _employeeProfileRepositoryMock.Setup(r => r.GetByIdAsync(profile.UserId, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
+        _userRepositoryMock.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        // Act
+        var act = () => _sut.UpdateTimeZoneAsync(user.CompanyId, user.Id, "Not/A/Real/Zone");
+
+        // Assert
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("invalid_timezone");
+        profile.TimeZoneId.Should().BeNull();
+        _unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateTimeZoneAsync_GivenUnknownUser_ShouldReturnNull()
+    {
+        // Arrange
+        _employeeProfileRepositoryMock
+            .Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((EmployeeProfile?)null);
+
+        // Act
+        var result = await _sut.UpdateTimeZoneAsync(Guid.NewGuid(), Guid.NewGuid(), "Africa/Cairo");
+
+        // Assert
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task UpdateTimeZoneAsync_GivenUserFromAnotherCompany_ShouldReturnNullAndNotPersist()
+    {
+        // Arrange
+        var (profile, user) = CreateProfileAndUser();
+        _employeeProfileRepositoryMock.Setup(r => r.GetByIdAsync(profile.UserId, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
+        _userRepositoryMock.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        // Act
+        var result = await _sut.UpdateTimeZoneAsync(Guid.NewGuid(), user.Id, "Africa/Cairo");
+
+        // Assert
+        result.Should().BeNull();
+        profile.TimeZoneId.Should().BeNull();
+        _unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
     // ------------------------------------------------------------
     // UpdatePhotoAsync / RemovePhotoAsync
     // ------------------------------------------------------------
