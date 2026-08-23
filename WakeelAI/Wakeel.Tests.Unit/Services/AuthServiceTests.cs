@@ -727,8 +727,11 @@ public class AuthServiceTests
     }
 
     [Fact]
-    public async Task ResetPasswordAsync_GivenCorrectCode_ShouldSetNewPasswordAndNotSetMustChangePassword()
+    public async Task ResetPasswordAsync_GivenCorrectCode_ShouldSetNewPasswordAndClearMustChangePassword()
     {
+        // FIX-08: ChangePasswordAsync already clears this flag; ResetPasswordAsync used to
+        // leave it untouched, so an invited HR who never logged in and used Forgot Password
+        // stayed permanently stuck behind the forced-change-password redirect.
         // Arrange
         var user = CreateTestUser(mustChangePassword: true);
         var request = new ResetPasswordRequest { Email = user.Email, Otp = "123456", NewPassword = "NewStrongPassword123!" };
@@ -760,7 +763,7 @@ public class AuthServiceTests
         // Assert
         result.IsSuccess.Should().BeTrue();
         user.PasswordHash.Should().Be("new_password_hash");
-        user.MustChangePassword.Should().BeTrue("resetting via OTP must not touch the flag either way — it's simply never assigned");
+        user.MustChangePassword.Should().BeFalse("a user who has just proven ownership via OTP and set a new password has satisfied the forced-change requirement");
         _userRepositoryMock.Verify(r => r.Update(user), Times.Once);
         _passwordResetOtpRepositoryMock.Verify(r => r.Remove(record), Times.Once);
     }

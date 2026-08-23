@@ -376,6 +376,7 @@ public class AuthService : IAuthService
                 return (false, MapOtpErrorCode(status), status);
 
             user!.PasswordHash = _passwordHasher.HashPassword(request.NewPassword);
+            user.MustChangePassword = false;
             _unitOfWork.Users.Update(user);
             _unitOfWork.PasswordResetOtps.Remove(record!);
 
