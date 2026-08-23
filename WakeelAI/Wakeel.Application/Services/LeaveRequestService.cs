@@ -135,8 +135,10 @@ public class LeaveRequestService : ILeaveRequestService
         {
             query = query.Where(lr => lr.EmployeeId == employeeId.Value);
         }
-        else if (role == "HR_Manager")
+        else if (role == "HR_Manager" || role == "Company_Owner")
         {
+            // Company_Owner gets the same company-wide, non-draft view as HR - read-only,
+            // enforced at the controller (no Approve/Reject action is exposed to Owner).
             query = query.Where(lr => lr.Status != "Draft" && lr.Status != "Cancelled");
         }
         else
@@ -188,11 +190,11 @@ public class LeaveRequestService : ILeaveRequestService
         {
             throw new InvalidOperationException("leave_request_not_found");
         }
-        else if (role == "HR_Manager" && (request.Status == "Draft" || request.Status == "Cancelled"))
+        else if ((role == "HR_Manager" || role == "Company_Owner") && (request.Status == "Draft" || request.Status == "Cancelled"))
         {
             throw new InvalidOperationException("leave_request_not_found");
         }
-        else if (role != "Employee" && role != "HR_Manager")
+        else if (role != "Employee" && role != "HR_Manager" && role != "Company_Owner")
         {
             throw new UnauthorizedAccessException();
         }

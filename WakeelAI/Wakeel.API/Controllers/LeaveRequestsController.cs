@@ -60,7 +60,7 @@ public class LeaveRequestsController : ControllerBase
     }
 
     [HttpGet]
-    [Authorize(Roles = "Employee, HR_Manager")]
+    [Authorize(Roles = "Employee, HR_Manager, Company_Owner")]
     public async Task<IActionResult> List(
         [FromQuery] string? status,
         [FromQuery] int page = 1,
@@ -77,7 +77,7 @@ public class LeaveRequestsController : ControllerBase
     }
 
     [HttpGet("{id}")]
-    [Authorize(Roles = "Employee, HR_Manager")]
+    [Authorize(Roles = "Employee, HR_Manager, Company_Owner")]
     public async Task<IActionResult> GetById(
         [FromRoute] Guid id,
         CancellationToken cancellationToken)
