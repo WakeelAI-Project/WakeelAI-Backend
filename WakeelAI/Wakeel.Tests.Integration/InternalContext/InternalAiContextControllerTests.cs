@@ -266,4 +266,69 @@ public class InternalAiContextControllerTests : IClassFixture<CustomWebApplicati
         doc.RootElement.GetProperty("id").GetString().Should().Be(companyId.ToString());
         doc.RootElement.TryGetProperty("name", out _).Should().BeTrue();
     }
+
+    // -------- GET /api/ai/employees/search (FIX-17) --------
+
+    [Fact]
+    public async Task SearchEmployees_NonHrRole_Returns403()
+    {
+        var (_, companyId) = await SeedEmployeeAsync();
+        var client = _factory.CreateClient();
+        var request = BuildInternalRequest("/api/ai/employees/search?name=Test", ValidPsk, Guid.NewGuid().ToString(), companyId.ToString(), "Employee");
+
+        var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task SearchEmployees_MatchingName_ReturnsEmployee()
+    {
+        var (employeeId, companyId) = await SeedEmployeeAsync();
+        var client = _factory.CreateClient();
+        var request = BuildInternalRequest("/api/ai/employees/search?name=Test%20Employee", ValidPsk, Guid.NewGuid().ToString(), companyId.ToString(), "HR_Manager");
+
+        var response = await client.SendAsync(request);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var json = await response.Content.ReadAsStringAsync();
+        var doc = JsonDocument.Parse(json);
+        var employees = doc.RootElement.GetProperty("employees").EnumerateArray().ToList();
+
+        employees.Should().ContainSingle();
+        employees[0].GetProperty("employee_id").GetString().Should().Be(employeeId.ToString());
+        employees[0].GetProperty("full_name").GetString().Should().Be("Test Employee");
+    }
+
+    [Fact]
+    public async Task SearchEmployees_NoMatch_ReturnsEmptyList()
+    {
+        var (_, companyId) = await SeedEmployeeAsync();
+        var client = _factory.CreateClient();
+        var request = BuildInternalRequest("/api/ai/employees/search?name=Nobody%20Here", ValidPsk, Guid.NewGuid().ToString(), companyId.ToString(), "HR_Manager");
+
+        var response = await client.SendAsync(request);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var json = await response.Content.ReadAsStringAsync();
+        var doc = JsonDocument.Parse(json);
+        doc.RootElement.GetProperty("employees").EnumerateArray().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task SearchEmployees_CrossTenant_DoesNotLeakOtherCompanysEmployee()
+    {
+        var (_, companyId) = await SeedEmployeeAsync();
+        await SeedEmployeeAsync(); // another company, also named "Test Employee"
+
+        var client = _factory.CreateClient();
+        var request = BuildInternalRequest("/api/ai/employees/search?name=Test%20Employee", ValidPsk, Guid.NewGuid().ToString(), companyId.ToString(), "HR_Manager");
+
+        var response = await client.SendAsync(request);
+        var json = await response.Content.ReadAsStringAsync();
+        var doc = JsonDocument.Parse(json);
+        var employees = doc.RootElement.GetProperty("employees").EnumerateArray().ToList();
+
+        employees.Should().ContainSingle("the search must stay scoped to the requesting company");
+    }
 }

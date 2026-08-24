@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Wakeel.Application.DTOs.AiIntegrations;
+using Wakeel.Application.Interfaces;
 using Wakeel.Application.Interfaces.Repositories;
 using Wakeel.Application.Interfaces.Services;
 using Wakeel.Infrastructure.Persistence;
@@ -25,15 +26,18 @@ public class InternalAiContextController : ControllerBase
     private readonly ApplicationDbContext _dbContext;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILeaveBalanceProvisioningService _leaveBalanceProvisioningService;
+    private readonly IEmployeeService _employeeService;
 
     public InternalAiContextController(
         ApplicationDbContext dbContext,
         IUnitOfWork unitOfWork,
-        ILeaveBalanceProvisioningService leaveBalanceProvisioningService)
+        ILeaveBalanceProvisioningService leaveBalanceProvisioningService,
+        IEmployeeService employeeService)
     {
         _dbContext = dbContext;
         _unitOfWork = unitOfWork;
         _leaveBalanceProvisioningService = leaveBalanceProvisioningService;
+        _employeeService = employeeService;
     }
 
     private Guid GetXUserId() => Guid.Parse(Request.Headers["X-User-Id"]!);
@@ -147,6 +151,39 @@ public class InternalAiContextController : ControllerBase
             WorkingHours = string.IsNullOrEmpty(company.WorkingHours) ? null : company.WorkingHours,
             RegisteredAt = company.RegisteredAt,
             PolicyAvailable = policyAvailable
+        };
+
+        return Ok(response);
+    }
+
+    /// <summary>
+    /// FIX-17: lets the AI resolve an employee typed by name (e.g. from the general
+    /// Assistant page, where no <c>targetEmployeeId</c> is set yet) instead of failing
+    /// outright. HR_Manager-only, same as the document-generation skill that calls it.
+    /// </summary>
+    [HttpGet("employees/search")]
+    public async Task<IActionResult> SearchEmployees([FromQuery] string name, CancellationToken cancellationToken)
+    {
+        var companyId = GetXCompanyId();
+        var role = GetXRole();
+
+        if (role != "HR_Manager")
+        {
+            return Forbid();
+        }
+
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return Ok(new EmployeeSearchResponse());
+        }
+
+        var result = await _employeeService.ListEmployeesAsync(companyId, status: null, search: name, page: 1, limit: 5, cancellationToken);
+
+        var response = new EmployeeSearchResponse
+        {
+            Employees = result.Data
+                .Select(e => new EmployeeSearchResultDto { EmployeeId = e.UserId.ToString(), FullName = e.FullName })
+                .ToList()
         };
 
         return Ok(response);
