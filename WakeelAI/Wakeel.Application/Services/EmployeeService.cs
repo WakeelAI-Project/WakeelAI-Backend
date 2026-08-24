@@ -156,6 +156,13 @@ public class EmployeeService : IEmployeeService
         var balances = await _unitOfWork.LeaveBalances.FindAsync(
             lb => lb.EmployeeId == profile.UserId && lb.Year == currentYear, cancellationToken);
 
+        // Same reservation LeaveRequestService's own validation enforces - a displayed
+        // balance that omitted it used to tell an employee they had days a new request
+        // would then reject as insufficient.
+        var reservedAnnual = await _leaveBalanceProvisioningService.GetReservedDaysAsync(profile.UserId, "Annual", currentYear, cancellationToken);
+        var reservedSick = await _leaveBalanceProvisioningService.GetReservedDaysAsync(profile.UserId, "Sick", currentYear, cancellationToken);
+        var reservedUnpaid = await _leaveBalanceProvisioningService.GetReservedDaysAsync(profile.UserId, "Unpaid", currentYear, cancellationToken);
+
         var today = ResolveEmployeeToday(profile.TimeZoneId);
         var activeLeave = await _unitOfWork.LeaveRequests.FirstOrDefaultAsync(
             lr => lr.EmployeeId == profile.UserId && lr.Status == "Approved" && lr.StartDate <= today && lr.EndDate >= today,
@@ -179,9 +186,9 @@ public class EmployeeService : IEmployeeService
             TimeZoneId = profile.TimeZoneId,
             LeaveBalance = new LeaveBalanceSummary
             {
-                Annual = MapLeaveBalance(balances, "Annual"),
-                Sick = MapLeaveBalance(balances, "Sick"),
-                Unpaid = MapLeaveBalance(balances, "Unpaid")
+                Annual = MapLeaveBalance(balances, "Annual", reservedAnnual),
+                Sick = MapLeaveBalance(balances, "Sick", reservedSick),
+                Unpaid = MapLeaveBalance(balances, "Unpaid", reservedUnpaid)
             },
             CurrentLeave = MapCurrentLeave(activeLeave, today)
         };
@@ -514,7 +521,7 @@ public class EmployeeService : IEmployeeService
 
     private static string GetEmploymentStatus(bool isActive) => isActive ? "Active" : "Inactive";
 
-    private static LeaveTypeBalance? MapLeaveBalance(IEnumerable<LeaveBalance> balances, string leaveType)
+    private static LeaveTypeBalance? MapLeaveBalance(IEnumerable<LeaveBalance> balances, string leaveType, int reservedDays)
     {
         var match = balances.FirstOrDefault(b => string.Equals(b.LeaveType, leaveType, StringComparison.OrdinalIgnoreCase));
         if (match is null)
@@ -524,7 +531,8 @@ public class EmployeeService : IEmployeeService
         {
             TotalDays = match.TotalDays,
             UsedDays = match.UsedDays,
-            RemainingDays = match.TotalDays.HasValue ? match.TotalDays.Value - match.UsedDays : null
+            RemainingDays = match.TotalDays.HasValue ? match.TotalDays.Value - match.UsedDays - reservedDays : null,
+            ReservedDays = reservedDays
         };
     }
 

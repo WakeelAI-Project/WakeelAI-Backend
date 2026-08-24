@@ -24,4 +24,16 @@ public interface ILeaveBalanceProvisioningService
     /// Ensures Annual, Sick, and Unpaid balances all exist for (employeeId, year).
     /// </summary>
     Task EnsureYearAsync(Guid employeeId, int year, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sums DaysRequested across the employee's Pending requests of this leave type
+    /// whose start date falls in this year. A Draft reserves nothing (it is not a
+    /// commitment) and an Approved request is already folded into UsedDays, so Pending
+    /// is the only status still held back from what a balance display or a new
+    /// request's validation can treat as available. This is the single source of truth
+    /// for that reservation - both a displayed balance and
+    /// LeaveRequestService's own validation must call this so the two can never drift
+    /// apart the way they did before.
+    /// </summary>
+    Task<int> GetReservedDaysAsync(Guid employeeId, string leaveType, int year, CancellationToken cancellationToken = default);
 }

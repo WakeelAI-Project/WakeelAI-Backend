@@ -148,6 +148,47 @@ public class InternalAiContextControllerTests : IClassFixture<CustomWebApplicati
     }
 
     [Fact]
+    public async Task GetEmployeeContext_WithPendingLeaveRequest_NetsReservedDaysOutOfRemaining()
+    {
+        // The context the AI hands the employee used to omit days held by their own
+        // Pending requests, so the assistant could tell them they had more available
+        // than LeaveRequestService's own validation would then allow for a new request.
+        var (employeeId, companyId) = await SeedEmployeeAsync();
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            db.LeaveRequests.Add(new Wakeel.Domain.Entities.LeaveRequest
+            {
+                Id = Guid.NewGuid(),
+                EmployeeId = employeeId,
+                CompanyId = companyId,
+                LeaveType = "Annual",
+                Status = "Pending",
+                DaysRequested = 4,
+                StartDate = new DateOnly(DateTime.UtcNow.Year, 3, 1),
+                EndDate = new DateOnly(DateTime.UtcNow.Year, 3, 4),
+                CreatedAt = DateTime.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var client = _factory.CreateClient();
+        var request = BuildInternalRequest("/api/ai/employee-context", ValidPsk, employeeId.ToString(), companyId.ToString(), "Employee");
+
+        var response = await client.SendAsync(request);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var annual = doc.RootElement.GetProperty("leave_balance").GetProperty("annual");
+
+        annual.GetProperty("total_days").GetInt32().Should().Be(21);
+        annual.GetProperty("used_days").GetInt32().Should().Be(5);
+        annual.GetProperty("reserved_days").GetInt32().Should().Be(4);
+        annual.GetProperty("remaining_days").GetInt32().Should().Be(12); // 21 - 5 - 4, not 16
+    }
+
+    [Fact]
     public async Task GetEmployeeContext_UnpaidAndSick_ReportAsUncappedNotZero()
     {
         // FIX-06: TotalDays ?? 0 used to coerce a genuinely uncapped balance to zero,

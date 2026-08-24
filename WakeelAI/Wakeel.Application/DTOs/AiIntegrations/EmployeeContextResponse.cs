@@ -61,6 +61,13 @@ public class LeaveBalanceContextDto
     [JsonPropertyName("remaining_days")]
     public int? RemainingDays { get; set; }
 
+    /// <summary>Days held by the employee's own Pending requests of this type this year -
+    /// already netted out of <see cref="RemainingDays"/>, surfaced so the assistant can
+    /// explain why remaining is lower than total minus used (e.g. a request still awaiting
+    /// HR review) instead of the employee being confused when a new request is rejected.</summary>
+    [JsonPropertyName("reserved_days")]
+    public int ReservedDays { get; set; }
+
     /// <summary>True when this leave type carries no day cap (Sick, Unpaid), so the
     /// assistant can describe it as "no cap" instead of inferring meaning from null.</summary>
     [JsonPropertyName("is_uncapped")]

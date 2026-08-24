@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Wakeel.Application.Interfaces.Repositories;
@@ -57,6 +58,19 @@ public class LeaveBalanceProvisioningService : ILeaveBalanceProvisioningService
     {
         foreach (var leaveType in ProvisionedLeaveTypes)
             await GetOrCreateAsync(employeeId, leaveType, year, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<int> GetReservedDaysAsync(Guid employeeId, string leaveType, int year, CancellationToken cancellationToken = default)
+    {
+        var pendingRequests = await _unitOfWork.LeaveRequests.FindAsync(lr =>
+            lr.EmployeeId == employeeId &&
+            lr.LeaveType == leaveType &&
+            lr.Status == "Pending" &&
+            lr.StartDate.Year == year,
+            cancellationToken);
+
+        return pendingRequests.Sum(lr => lr.DaysRequested);
     }
 
     /// <summary>

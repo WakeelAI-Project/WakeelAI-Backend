@@ -393,14 +393,7 @@ public class LeaveRequestService : ILeaveRequestService
 
             if (balance.TotalDays.HasValue)
             {
-                var activeRequests = await _unitOfWork.LeaveRequests.FindAsync(lr =>
-                    lr.EmployeeId == employeeId &&
-                    lr.LeaveType == leaveType &&
-                    lr.Status == "Pending" &&
-                    lr.StartDate.Year == year,
-                    cancellationToken);
-
-                var reservedDays = activeRequests.Sum(lr => lr.DaysRequested);
+                var reservedDays = await _leaveBalanceProvisioningService.GetReservedDaysAsync(employeeId, leaveType, year, cancellationToken);
                 var remaining = balance.TotalDays.Value - balance.UsedDays - reservedDays;
                 if (remaining < daysRequested)
                     throw new InvalidOperationException("insufficient_leave_balance");

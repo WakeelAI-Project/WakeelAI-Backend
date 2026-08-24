@@ -24,6 +24,7 @@ public class LeaveBalanceProvisioningServiceTests
     private readonly Mock<ILeaveBalanceRepository> _leaveBalanceRepositoryMock = new();
     private readonly Mock<ILeaveEntitlementRepository> _leaveEntitlementRepositoryMock = new();
     private readonly Mock<IEmployeeProfileRepository> _employeeProfileRepositoryMock = new();
+    private readonly Mock<ILeaveRequestRepository> _leaveRequestRepositoryMock = new();
 
     private readonly LeaveBalanceProvisioningService _sut;
 
@@ -45,6 +46,7 @@ public class LeaveBalanceProvisioningServiceTests
         _unitOfWorkMock.Setup(u => u.LeaveBalances).Returns(_leaveBalanceRepositoryMock.Object);
         _unitOfWorkMock.Setup(u => u.LeaveEntitlements).Returns(_leaveEntitlementRepositoryMock.Object);
         _unitOfWorkMock.Setup(u => u.EmployeeProfiles).Returns(_employeeProfileRepositoryMock.Object);
+        _unitOfWorkMock.Setup(u => u.LeaveRequests).Returns(_leaveRequestRepositoryMock.Object);
 
         _leaveEntitlementRepositoryMock
             .Setup(r => r.FirstOrDefaultAsync(It.IsAny<Expression<Func<LeaveEntitlement, bool>>>(), It.IsAny<CancellationToken>()))
@@ -197,5 +199,34 @@ public class LeaveBalanceProvisioningServiceTests
         added.Should().HaveCount(3);
         added.Select(lb => lb.LeaveType).Should().BeEquivalentTo(new[] { "Annual", "Sick", "Unpaid" });
         added.Should().OnlyContain(lb => lb.EmployeeId == employeeId && lb.Year == 2020 && lb.UsedDays == 0);
+    }
+
+    [Fact]
+    public async Task GetReservedDaysAsync_SumsOnlyPendingRequestsOfThatTypeAndYear()
+    {
+        var employeeId = Guid.NewGuid();
+        var otherEmployeeId = Guid.NewGuid();
+
+        var requests = new[]
+        {
+            new LeaveRequest { EmployeeId = employeeId, LeaveType = "Annual", Status = "Pending", DaysRequested = 3, StartDate = new DateOnly(2026, 3, 1), EndDate = new DateOnly(2026, 3, 3) },
+            new LeaveRequest { EmployeeId = employeeId, LeaveType = "Annual", Status = "Pending", DaysRequested = 2, StartDate = new DateOnly(2026, 6, 1), EndDate = new DateOnly(2026, 6, 2) },
+            // Excluded: Draft reserves nothing (FIX-07), Approved is already in UsedDays,
+            // wrong leave type, wrong employee, and a different year all must not count.
+            new LeaveRequest { EmployeeId = employeeId, LeaveType = "Annual", Status = "Draft", DaysRequested = 10, StartDate = new DateOnly(2026, 1, 1), EndDate = new DateOnly(2026, 1, 10) },
+            new LeaveRequest { EmployeeId = employeeId, LeaveType = "Annual", Status = "Approved", DaysRequested = 10, StartDate = new DateOnly(2026, 2, 1), EndDate = new DateOnly(2026, 2, 10) },
+            new LeaveRequest { EmployeeId = employeeId, LeaveType = "Sick", Status = "Pending", DaysRequested = 10, StartDate = new DateOnly(2026, 4, 1), EndDate = new DateOnly(2026, 4, 10) },
+            new LeaveRequest { EmployeeId = otherEmployeeId, LeaveType = "Annual", Status = "Pending", DaysRequested = 10, StartDate = new DateOnly(2026, 5, 1), EndDate = new DateOnly(2026, 5, 10) },
+            new LeaveRequest { EmployeeId = employeeId, LeaveType = "Annual", Status = "Pending", DaysRequested = 10, StartDate = new DateOnly(2027, 1, 1), EndDate = new DateOnly(2027, 1, 10) },
+        };
+
+        _leaveRequestRepositoryMock
+            .Setup(r => r.FindAsync(It.IsAny<Expression<Func<LeaveRequest, bool>>>(), It.IsAny<CancellationToken>()))
+            .Returns<Expression<Func<LeaveRequest, bool>>, CancellationToken>((predicate, _) =>
+                Task.FromResult<System.Collections.Generic.IReadOnlyList<LeaveRequest>>(requests.Where(predicate.Compile()).ToList()));
+
+        var reserved = await _sut.GetReservedDaysAsync(employeeId, "Annual", 2026, CancellationToken.None);
+
+        reserved.Should().Be(5);
     }
 }
