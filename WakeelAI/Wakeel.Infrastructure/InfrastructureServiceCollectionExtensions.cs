@@ -30,6 +30,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddSingleton<IFieldEncryptionService, FieldEncryptionService>();
         // FIX-26 data step - see IEmployeeProfileEncryptionBackfillService for when to run it.
         services.AddScoped<IEmployeeProfileEncryptionBackfillService, EmployeeProfileEncryptionBackfillService>();
+        services.AddScoped<IDemoDataResetService, DemoDataResetService>();
 
         services.AddDbContext<ApplicationDbContext>(options =>
             options.UseSqlServer(configuration.GetConnectionString("DefaultConnection")));

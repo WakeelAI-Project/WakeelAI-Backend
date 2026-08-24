@@ -119,6 +119,27 @@ public partial class Program
             return;
         }
 
+        // `dotnet run -- --reset-and-seed-demo-data` wipes every row in the database and
+        // replaces it with a small set of demo companies/employees/leave data, then exits
+        // without starting the web server. Deliberately manual/explicit and destructive by
+        // design - see Wakeel.Infrastructure.Services.IDemoDataResetService.
+        if (args.Contains("--reset-and-seed-demo-data"))
+        {
+            using var resetScope = app.Services.CreateScope();
+            var resetService = resetScope.ServiceProvider
+                .GetRequiredService<Wakeel.Infrastructure.Services.IDemoDataResetService>();
+            var result = resetService.ResetAsync().GetAwaiter().GetResult();
+
+            Console.WriteLine($"Demo data reset complete: {result.Logins.Count} account(s) seeded.");
+            Console.WriteLine();
+            Console.WriteLine("Company | Role | Email | Password");
+            foreach (var login in result.Logins)
+            {
+                Console.WriteLine($"{login.CompanyName} | {login.Role} | {login.Email} | {login.Password}");
+            }
+            return;
+        }
+
         // OpenAPI & Scalar
         // if (app.Environment.IsDevelopment())
         // {
