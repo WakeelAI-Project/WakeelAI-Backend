@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
@@ -53,6 +54,47 @@ public class InternalAiLeaveController : ControllerBase
     private Guid GetEmployeeId() => Guid.Parse(Request.Headers["X-User-Id"]!);
     private Guid GetCompanyId()  => Guid.Parse(Request.Headers["X-Company-Id"]!);
     private string GetRole()     => Request.Headers["X-Role"].ToString();
+
+    // -------- GET /api/ai/leave-requests/latest-draft --------
+
+    /// <summary>
+    /// Returns the caller's own most recent Draft leave request, so the AI service can
+    /// resolve which draft an ambiguous "send it" / "cancel it" chat message refers to
+    /// when no id can be extracted from the message or the conversation history.
+    /// Scoped strictly to the X-User-Id header - never allows enumerating another
+    /// employee's drafts, even given a different X-Company-Id.
+    /// </summary>
+    /// <param name="cancellationToken">A token to monitor for cancellation.</param>
+    /// <returns>200 OK with the draft's id, type, and dates, or 404 if none exists.</returns>
+    [HttpGet("latest-draft")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetLatestDraft(CancellationToken cancellationToken)
+    {
+        if (GetRole() != "Employee")
+            return StatusCode(StatusCodes.Status403Forbidden, new ApiErrorResponse { Error = "forbidden", Message = "Only employees have leave drafts.", Status = 403 });
+
+        var employeeId = GetEmployeeId();
+        var companyId = GetCompanyId();
+
+        var draft = await _dbContext.LeaveRequests
+            .Where(lr => lr.EmployeeId == employeeId && lr.CompanyId == companyId && lr.Status == "Draft")
+            .OrderByDescending(lr => lr.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (draft == null)
+            return NotFound(new ApiErrorResponse { Error = "leave_request_not_found", Message = "No draft leave request found.", Status = 404 });
+
+        return Ok(new
+        {
+            request_id = draft.Id,
+            leave_type = draft.LeaveType,
+            start_date = draft.StartDate.ToString("yyyy-MM-dd"),
+            end_date = draft.EndDate.ToString("yyyy-MM-dd"),
+            days_requested = draft.DaysRequested
+        });
+    }
 
     // -------- POST /api/ai/leave-requests --------
 

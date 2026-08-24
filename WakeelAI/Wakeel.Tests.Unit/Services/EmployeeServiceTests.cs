@@ -23,10 +23,13 @@ public class EmployeeServiceTests
     private readonly Mock<ILeaveBalanceRepository> _leaveBalanceRepositoryMock = new();
     private readonly Mock<ILeaveRequestRepository> _leaveRequestRepositoryMock = new();
     private readonly Mock<IDepartmentRepository> _departmentRepositoryMock = new();
+    private readonly Mock<ILeaveEntitlementRepository> _leaveEntitlementRepositoryMock = new();
+    private readonly Mock<IGeneratedDocumentRepository> _generatedDocumentRepositoryMock = new();
     private readonly Mock<IPasswordHasher> _passwordHasherMock = new();
     private readonly Mock<ILogger<EmployeeService>> _loggerMock = new();
     private readonly Mock<IEmailSender> _emailSenderMock = new();
     private readonly Mock<IResourceLoader> _resourceLoaderMock = new();
+    private readonly Mock<IAuditLogService> _auditLogServiceMock = new();
 
     private readonly EmployeeService _sut;
 
@@ -38,6 +41,15 @@ public class EmployeeServiceTests
         _unitOfWorkMock.Setup(u => u.LeaveBalances).Returns(_leaveBalanceRepositoryMock.Object);
         _unitOfWorkMock.Setup(u => u.LeaveRequests).Returns(_leaveRequestRepositoryMock.Object);
         _unitOfWorkMock.Setup(u => u.Departments).Returns(_departmentRepositoryMock.Object);
+        _unitOfWorkMock.Setup(u => u.LeaveEntitlements).Returns(_leaveEntitlementRepositoryMock.Object);
+        _unitOfWorkMock.Setup(u => u.GeneratedDocuments).Returns(_generatedDocumentRepositoryMock.Object);
+
+        // Real seeded entitlement rows (mirrors LeaveEntitlementConfiguration) so the real
+        // LeaveBalanceProvisioningService below computes genuine tiered values, not stubs.
+        _leaveEntitlementRepositoryMock
+            .Setup(r => r.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveEntitlement, bool>>>(), It.IsAny<CancellationToken>()))
+            .Returns<System.Linq.Expressions.Expression<Func<LeaveEntitlement, bool>>, CancellationToken>((predicate, _) =>
+                Task.FromResult(SeededEntitlements.FirstOrDefault(predicate.Compile())));
 
         _refreshTokenRepositoryMock
             .Setup(r => r.FindAsync(It.IsAny<System.Linq.Expressions.Expression<Func<RefreshToken, bool>>>(), It.IsAny<CancellationToken>()))
@@ -54,6 +66,12 @@ public class EmployeeServiceTests
         _leaveRequestRepositoryMock
             .Setup(r => r.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveRequest, bool>>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((LeaveRequest?)null);
+        _leaveRequestRepositoryMock
+            .Setup(r => r.FindAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveRequest, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<LeaveRequest>());
+        _generatedDocumentRepositoryMock
+            .Setup(r => r.FindAsync(It.IsAny<System.Linq.Expressions.Expression<Func<GeneratedDocument, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<GeneratedDocument>());
 
         _passwordHasherMock
             .Setup(h => h.HashPassword(It.IsAny<string>()))
@@ -66,14 +84,45 @@ public class EmployeeServiceTests
             .Setup(r => r.GetUserAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .Returns<Guid, CancellationToken>((id, ct) => _userRepositoryMock.Object.GetByIdAsync(id, ct));
 
+        // LeaveBalanceProvisioningService resolves an employee's HireDate via
+        // EmployeeProfiles.GetByUserIdAsync. Delegate it to GetByIdAsync (EmployeeProfile's
+        // primary key IS UserId) so any per-test GetByIdAsync setup - including one
+        // registered after this constructor runs - is honoured automatically. A profile
+        // added via AddAsync during CreateEmployeeAsync (and not yet given its own
+        // GetByIdAsync setup) is captured here too, so it becomes visible in the same test.
+        _employeeProfileRepositoryMock
+            .Setup(r => r.AddAsync(It.IsAny<EmployeeProfile>(), It.IsAny<CancellationToken>()))
+            .Callback<EmployeeProfile, CancellationToken>((p, _) => _addedProfiles[p.UserId] = p)
+            .Returns(Task.CompletedTask);
+        _employeeProfileRepositoryMock
+            .Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .Returns<Guid, CancellationToken>((id, _) => Task.FromResult(_addedProfiles.GetValueOrDefault(id)));
+        _employeeProfileRepositoryMock
+            .Setup(r => r.GetByUserIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .Returns<Guid, CancellationToken>((id, ct) => _employeeProfileRepositoryMock.Object.GetByIdAsync(id, ct));
+
+        var leaveBalanceProvisioningService = new LeaveBalanceProvisioningService(_unitOfWorkMock.Object);
+
         _sut = new EmployeeService(
             _unitOfWorkMock.Object,
             _passwordHasherMock.Object,
             _loggerMock.Object,
             _emailSenderMock.Object,
-            _resourceLoaderMock.Object
+            _resourceLoaderMock.Object,
+            leaveBalanceProvisioningService,
+            _auditLogServiceMock.Object
         );
     }
+
+    private readonly Dictionary<Guid, EmployeeProfile> _addedProfiles = new();
+
+    /// <summary>Mirrors the seed data in LeaveEntitlementConfiguration.</summary>
+    private static readonly List<LeaveEntitlement> SeededEntitlements = new()
+    {
+        new LeaveEntitlement { LeaveType = "Annual", BaseDays = 15, StandardDays = 21, SeniorDays = 30, SeniorityYears = 10, MinimumServiceMonths = 6 },
+        new LeaveEntitlement { LeaveType = "Sick", DefaultDays = null },
+        new LeaveEntitlement { LeaveType = "Unpaid", DefaultDays = null }
+    };
 
     // ------------------------------------------------------------
     // CreateEmployeeAsync
@@ -218,18 +267,24 @@ public class EmployeeServiceTests
 
         _leaveBalanceRepositoryMock.Verify(r => r.AddAsync(It.IsAny<LeaveBalance>(), It.IsAny<CancellationToken>()), Times.Exactly(3));
 
-        _unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        // FIX-01: CreateEmployeeAsync now saves twice - once so the just-added profile is
+        // visible to the provisioning service's own EmployeeProfiles lookup (which only
+        // sees persisted rows), then again to persist the provisioned leave balances.
+        _unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Exactly(2));
         _emailSenderMock.Verify(e => e.SendEmailAsync(request.Email, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
-    public async Task CreateEmployeeAsync_GivenValidRequest_ShouldInitializeLeaveBalancesForCurrentYear()
+    public async Task CreateEmployeeAsync_GivenValidRequest_ShouldInitializeLeaveBalancesForHireYear()
     {
         // Arrange
         var companyId = Guid.NewGuid();
-        var request = CreateValidRequest();
+        // A fixed historical hire date, not "yesterday": the Annual assertion below needs
+        // "under 6 months of service by the hire year's own year-end" to hold no matter
+        // which calendar month this test happens to run in.
+        var request = CreateValidRequest() with { HireDate = new DateTime(2020, 11, 15) };
         SetupValidDepartment(companyId, request.DepartmentId!.Value);
-        var currentYear = DateTime.UtcNow.Year;
+        var hireYear = request.HireDate.Year;
         var addedBalances = new List<LeaveBalance>();
 
         _userRepositoryMock
@@ -246,16 +301,21 @@ public class EmployeeServiceTests
 
         // Assert
         addedBalances.Should().HaveCount(3);
-        addedBalances.Should().OnlyContain(lb => lb.EmployeeId == result.RecordId && lb.Year == currentYear && lb.UsedDays == 0);
+        addedBalances.Should().OnlyContain(lb => lb.EmployeeId == result.RecordId && lb.Year == hireYear && lb.UsedDays == 0);
 
+        // Hired "yesterday": always under 6 months of service by the hire year's own
+        // year-end, so Annual reads 0 for this, its very first, partial year - it can
+        // never reach the prorated/standard/senior tiers within the hire year itself.
+        // Exact tier boundaries are covered by LeaveBalanceProvisioningServiceTests with
+        // fixed, calendar-independent dates.
         var annual = addedBalances.Should().ContainSingle(lb => lb.LeaveType == "Annual").Subject;
-        annual.TotalDays.Should().Be(15);
+        annual.TotalDays.Should().Be(0);
 
         var sick = addedBalances.Should().ContainSingle(lb => lb.LeaveType == "Sick").Subject;
-        sick.TotalDays.Should().Be(10);
+        sick.TotalDays.Should().BeNull("Sick has no fixed day quota under Law No. 14/2025");
 
         var unpaid = addedBalances.Should().ContainSingle(lb => lb.LeaveType == "Unpaid").Subject;
-        unpaid.TotalDays.Should().Be(0);
+        unpaid.TotalDays.Should().BeNull("Unpaid has no statutory quota");
     }
 
     [Fact]
@@ -279,7 +339,7 @@ public class EmployeeServiceTests
 
         // Assert
         result.Should().NotBeNull();
-        _unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        _unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Exactly(2));
     }
 
     // ------------------------------------------------------------
@@ -784,7 +844,7 @@ public class EmployeeServiceTests
             .ReturnsAsync((EmployeeProfile?)null);
 
         // Act
-        var result = await _sut.UpdateEmployeeAsync(Guid.NewGuid(), Guid.NewGuid(), new UpdateEmployeeRequest());
+        var result = await _sut.UpdateEmployeeAsync(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), new UpdateEmployeeRequest());
 
         // Assert
         result.Should().BeNull();
@@ -801,7 +861,7 @@ public class EmployeeServiceTests
         _userRepositoryMock.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         // Act
-        var result = await _sut.UpdateEmployeeAsync(otherCompanyId, profile.UserId, new UpdateEmployeeRequest());
+        var result = await _sut.UpdateEmployeeAsync(otherCompanyId, Guid.NewGuid(), profile.UserId, new UpdateEmployeeRequest());
 
         // Assert
         result.Should().BeNull();
@@ -819,7 +879,7 @@ public class EmployeeServiceTests
         var request = new UpdateEmployeeRequest { HireDate = DateTime.UtcNow.AddDays(1) };
 
         // Act
-        var act = () => _sut.UpdateEmployeeAsync(user.CompanyId, profile.UserId, request);
+        var act = () => _sut.UpdateEmployeeAsync(user.CompanyId, Guid.NewGuid(), profile.UserId, request);
 
         // Assert
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("hire_date_in_future");
@@ -844,7 +904,7 @@ public class EmployeeServiceTests
         };
 
         // Act
-        var result = await _sut.UpdateEmployeeAsync(user.CompanyId, profile.UserId, request);
+        var result = await _sut.UpdateEmployeeAsync(user.CompanyId, Guid.NewGuid(), profile.UserId, request);
 
         // Assert
         result.Should().NotBeNull();
@@ -873,7 +933,7 @@ public class EmployeeServiceTests
         var request = new UpdateEmployeeRequest { DepartmentId = newDepartmentId };
 
         // Act
-        var result = await _sut.UpdateEmployeeAsync(user.CompanyId, profile.UserId, request);
+        var result = await _sut.UpdateEmployeeAsync(user.CompanyId, Guid.NewGuid(), profile.UserId, request);
 
         // Assert
         result.Should().NotBeNull();
@@ -896,7 +956,7 @@ public class EmployeeServiceTests
         var request = new UpdateEmployeeRequest { DepartmentId = unknownDepartmentId };
 
         // Act
-        var act = () => _sut.UpdateEmployeeAsync(user.CompanyId, profile.UserId, request);
+        var act = () => _sut.UpdateEmployeeAsync(user.CompanyId, Guid.NewGuid(), profile.UserId, request);
 
         // Assert
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("department_not_found");
@@ -918,7 +978,7 @@ public class EmployeeServiceTests
         var request = new UpdateEmployeeRequest { DepartmentId = otherCompanyDepartmentId };
 
         // Act
-        var act = () => _sut.UpdateEmployeeAsync(user.CompanyId, profile.UserId, request);
+        var act = () => _sut.UpdateEmployeeAsync(user.CompanyId, Guid.NewGuid(), profile.UserId, request);
 
         // Assert
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("department_not_found");
@@ -938,7 +998,7 @@ public class EmployeeServiceTests
             .ReturnsAsync((EmployeeProfile?)null);
 
         // Act
-        var result = await _sut.DeactivateEmployeeAsync(Guid.NewGuid(), Guid.NewGuid());
+        var result = await _sut.DeactivateEmployeeAsync(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
 
         // Assert
         result.Should().BeFalse();
@@ -955,7 +1015,7 @@ public class EmployeeServiceTests
         _userRepositoryMock.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         // Act
-        var result = await _sut.DeactivateEmployeeAsync(Guid.NewGuid(), profile.UserId);
+        var result = await _sut.DeactivateEmployeeAsync(Guid.NewGuid(), Guid.NewGuid(), profile.UserId);
 
         // Assert
         result.Should().BeFalse();
@@ -976,7 +1036,7 @@ public class EmployeeServiceTests
             .ReturnsAsync(new List<RefreshToken> { activeToken });
 
         // Act
-        var result = await _sut.DeactivateEmployeeAsync(user.CompanyId, profile.UserId);
+        var result = await _sut.DeactivateEmployeeAsync(user.CompanyId, Guid.NewGuid(), profile.UserId);
 
         // Assert
         result.Should().BeTrue();
@@ -999,12 +1059,74 @@ public class EmployeeServiceTests
         _userRepositoryMock.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         // Act
-        var result = await _sut.DeactivateEmployeeAsync(user.CompanyId, profile.UserId);
+        var result = await _sut.DeactivateEmployeeAsync(user.CompanyId, Guid.NewGuid(), profile.UserId);
 
         // Assert
         result.Should().BeTrue();
         _unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
         _userRepositoryMock.Verify(r => r.Update(It.IsAny<User>()), Times.Never);
+    }
+
+    // ------------------------------------------------------------
+    // ExportPersonalDataAsync (FIX-25)
+    // ------------------------------------------------------------
+
+    [Fact]
+    public async Task ExportPersonalDataAsync_GivenUnknownRecordId_ShouldReturnNull()
+    {
+        var result = await _sut.ExportPersonalDataAsync(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ExportPersonalDataAsync_GivenRecordFromAnotherCompany_ShouldReturnNull()
+    {
+        var (profile, user) = CreateProfileAndUser();
+        _employeeProfileRepositoryMock.Setup(r => r.GetByIdAsync(profile.UserId, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
+        _userRepositoryMock.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        var result = await _sut.ExportPersonalDataAsync(Guid.NewGuid(), Guid.NewGuid(), profile.UserId);
+
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ExportPersonalDataAsync_GivenValidRecord_ReturnsFullBundleAndWritesAuditEntry()
+    {
+        var (profile, user) = CreateProfileAndUser();
+        _employeeProfileRepositoryMock.Setup(r => r.GetByIdAsync(profile.UserId, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
+        _userRepositoryMock.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _departmentRepositoryMock
+            .Setup(r => r.GetByIdAsync(profile.DepartmentId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Department { Id = profile.DepartmentId, CompanyId = user.CompanyId, Name = "Engineering" });
+
+        var balance = new LeaveBalance { EmployeeId = profile.UserId, LeaveType = "Annual", Year = 2026, TotalDays = 21, UsedDays = 3 };
+        _leaveBalanceRepositoryMock
+            .Setup(r => r.FindAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveBalance, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<LeaveBalance> { balance });
+
+        var leaveRequest = new LeaveRequest { Id = Guid.NewGuid(), EmployeeId = profile.UserId, LeaveType = "Annual", Status = "Approved", CreatedAt = DateTime.UtcNow };
+        _leaveRequestRepositoryMock
+            .Setup(r => r.FindAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveRequest, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<LeaveRequest> { leaveRequest });
+
+        var document = new GeneratedDocument { Id = Guid.NewGuid(), EmployeeId = profile.UserId, DocumentType = "Contract", Title = "Employment Contract", Status = "Final", CreatedAt = DateTime.UtcNow };
+        _generatedDocumentRepositoryMock
+            .Setup(r => r.FindAsync(It.IsAny<System.Linq.Expressions.Expression<Func<GeneratedDocument, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<GeneratedDocument> { document });
+
+        var actorUserId = Guid.NewGuid();
+        var result = await _sut.ExportPersonalDataAsync(user.CompanyId, actorUserId, profile.UserId);
+
+        result.Should().NotBeNull();
+        result!.User.FullName.Should().Be(user.FullName);
+        result.Profile.Department.Should().Be("Engineering");
+        result.LeaveBalances.Should().ContainSingle(b => b.LeaveType == "Annual" && b.TotalDays == 21);
+        result.LeaveRequests.Should().ContainSingle(r => r.RequestId == leaveRequest.Id);
+        result.GeneratedDocuments.Should().ContainSingle(d => d.DocumentId == document.Id);
+
+        _auditLogServiceMock.Verify(a => a.LogActionAsync(actorUserId, "PERSONAL_DATA_EXPORTED", It.IsAny<string>()), Times.Once);
     }
 
     private static (EmployeeProfile Profile, User User) CreateProfileAndUser()

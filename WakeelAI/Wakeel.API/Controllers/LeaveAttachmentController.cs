@@ -31,6 +31,7 @@ public class LeaveAttachmentController : ControllerBase
     private readonly ILogger<LeaveAttachmentController> _logger;
 
     private static readonly string[] AllowedExtensions = { ".pdf", ".jpg", ".jpeg", ".png" };
+    private static readonly string[] AllowedContentTypes = { "application/pdf", "image/jpeg", "image/png" };
     private const long MaxFileSizeBytes = 10 * 1024 * 1024; // 10 MB
 
     /// <summary>
@@ -52,14 +53,27 @@ public class LeaveAttachmentController : ControllerBase
     /// <param name="cancellationToken">A token to monitor for cancellation.</param>
     /// <returns>201 Created with the attachment_url.</returns>
     [HttpPost("attachments")]
-    [AllowAnonymous]
+    [Authorize(Roles = "Employee")]
     [ProducesResponseType(StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> UploadAttachment(
         IFormFile? file,
         CancellationToken cancellationToken)
     {
+        // Identity is resolved from verified JWT claims BEFORE anything is written to
+        // disk or the database. [Authorize(Roles = "Employee")] already rejects anyone
+        // without a valid token and the Employee role, but the claims are still parsed
+        // explicitly here (rather than trusting a client-supplied header) so nothing
+        // downstream can be tricked into acting on a forged identity.
+        var userClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? User.FindFirst("user_id")?.Value;
+        var companyClaim = User.FindFirst("company_id")?.Value;
+        if (!Guid.TryParse(userClaim, out var userId) || !Guid.TryParse(companyClaim, out var companyId))
+        {
+            return BadRequest(new ApiErrorResponse { Error = "validation_error", Message = "Invalid user or company claims.", Status = 400 });
+        }
+
         if (file == null || file.Length == 0)
             return BadRequest(new ApiErrorResponse
             {
@@ -77,7 +91,7 @@ public class LeaveAttachmentController : ControllerBase
             });
 
         var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
-        if (!AllowedExtensions.Contains(extension))
+        if (!AllowedExtensions.Contains(extension) || !AllowedContentTypes.Contains(file.ContentType.ToLowerInvariant()))
             return BadRequest(new ApiErrorResponse
             {
                 Error   = "invalid_attachment",
@@ -85,42 +99,16 @@ public class LeaveAttachmentController : ControllerBase
                 Status  = 400
             });
 
+        // Validate the referenced employee exists and belongs to the given company
+        // BEFORE touching the filesystem.
+        var employeeExists = await _dbContext.Users.AnyAsync(u => u.Id == userId && u.CompanyId == companyId, cancellationToken);
+        if (!employeeExists)
+        {
+            return NotFound(new ApiErrorResponse { Error = "employee_not_found", Message = "Employee not found.", Status = 404 });
+        }
+
         using var stream = file.OpenReadStream();
         var attachmentUrl = await _fileService.SaveFileAsync(stream, file.FileName, "leave-requests", cancellationToken);
-
-        Guid userId;
-        Guid companyId;
-
-        // If the request is authenticated via JWT, prefer claims. Otherwise accept explicit headers
-        // from the mobile app: X-User-Id and X-Company-Id (public mode).
-        if (User?.Identity != null && User.Identity.IsAuthenticated)
-        {
-            var role = User.FindFirst(ClaimTypes.Role)?.Value ?? User.FindFirst("role")?.Value;
-            if (!string.Equals(role, "Employee", StringComparison.OrdinalIgnoreCase))
-            {
-                return Forbid();
-            }
-
-            var userClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? User.FindFirst("user_id")?.Value;
-            var companyClaim = User.FindFirst("company_id")?.Value;
-            if (!Guid.TryParse(userClaim, out userId) || !Guid.TryParse(companyClaim, out companyId))
-            {
-                return BadRequest(new ApiErrorResponse { Error = "validation_error", Message = "Invalid user or company claims.", Status = 400 });
-            }
-        }
-        else
-        {
-            // Public upload mode - mobile app must supply X-User-Id and X-Company-Id headers.
-            if (!Request.Headers.TryGetValue("X-User-Id", out var headerUser) || !Request.Headers.TryGetValue("X-Company-Id", out var headerCompany))
-            {
-                return BadRequest(new ApiErrorResponse { Error = "missing_identity_headers", Message = "X-User-Id and X-Company-Id headers are required for anonymous uploads.", Status = 400 });
-            }
-
-            if (!Guid.TryParse(headerUser.ToString(), out userId) || !Guid.TryParse(headerCompany.ToString(), out companyId))
-            {
-                return BadRequest(new ApiErrorResponse { Error = "validation_error", Message = "Invalid X-User-Id or X-Company-Id format.", Status = 400 });
-            }
-        }
 
         var attachmentRecord = new LeaveAttachment
         {
@@ -130,13 +118,6 @@ public class LeaveAttachmentController : ControllerBase
             Url = attachmentUrl,
             CreatedAt = DateTime.UtcNow
         };
-
-        // Validate the referenced employee exists and belongs to the given company.
-        var employeeExists = await _dbContext.Users.AnyAsync(u => u.Id == userId && u.CompanyId == companyId, cancellationToken);
-        if (!employeeExists)
-        {
-            return NotFound(new ApiErrorResponse { Error = "employee_not_found", Message = "Employee not found.", Status = 404 });
-        }
 
         _dbContext.LeaveAttachments.Add(attachmentRecord);
         await _dbContext.SaveChangesAsync(cancellationToken);

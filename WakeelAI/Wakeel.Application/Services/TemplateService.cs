@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Wakeel.Application.DTOs.Templates;
 using Wakeel.Application.Interfaces;
 using Wakeel.Domain.Entities;
@@ -14,11 +15,28 @@ public class TemplateService : ITemplateService
 {
     private readonly IUnitOfWork _unitOfWork;
     private readonly ICurrentTenantService _currentTenantService;
+    private readonly IAuditLogService _auditLogService;
+    private readonly ILogger<TemplateService> _logger;
 
-    public TemplateService(IUnitOfWork unitOfWork, ICurrentTenantService currentTenantService)
+    public TemplateService(IUnitOfWork unitOfWork, ICurrentTenantService currentTenantService, IAuditLogService auditLogService, ILogger<TemplateService> logger)
     {
         _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
         _currentTenantService = currentTenantService ?? throw new ArgumentNullException(nameof(currentTenantService));
+        _auditLogService = auditLogService ?? throw new ArgumentNullException(nameof(auditLogService));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    }
+
+    /// <summary>Writes an audit entry without letting a failure affect the caller's result.</summary>
+    private async Task TryLogAuditAsync(Guid? userId, string action, string details)
+    {
+        try
+        {
+            await _auditLogService.LogActionAsync(userId, action, details);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to write {Action} audit entry.", action);
+        }
     }
 
     public async Task<(IEnumerable<TemplateDto> Data, int Total)> GetTemplatesAsync(int page, int limit, string? documentType)
@@ -66,7 +84,7 @@ public class TemplateService : ITemplateService
         };
     }
 
-    public async Task<TemplateDto> CreateTemplateAsync(CreateTemplateRequest request)
+    public async Task<TemplateDto> CreateTemplateAsync(Guid actorUserId, CreateTemplateRequest request)
     {
         if (request.IsActive)
         {
@@ -86,6 +104,8 @@ public class TemplateService : ITemplateService
         await _unitOfWork.DocumentTemplates.AddAsync(template);
         await _unitOfWork.SaveChangesAsync();
 
+        await TryLogAuditAsync(actorUserId, "TEMPLATE_CREATED", $"Created template \"{template.Name}\" ({template.DocumentType}).");
+
         return new TemplateDto
         {
             Id = template.Id,
@@ -96,7 +116,7 @@ public class TemplateService : ITemplateService
         };
     }
 
-    public async Task<TemplateDto> UpdateTemplateAsync(Guid id, UpdateTemplateRequest request)
+    public async Task<TemplateDto> UpdateTemplateAsync(Guid actorUserId, Guid id, UpdateTemplateRequest request)
     {
         var template = await _unitOfWork.DocumentTemplates.GetByIdAsync(id);
         if (template == null)
@@ -111,17 +131,21 @@ public class TemplateService : ITemplateService
         if (request.ContentTemplate != null)
             template.ContentTemplate = request.ContentTemplate;
 
+        var isBeingActivated = false;
         if (request.IsActive.HasValue)
         {
             if (request.IsActive.Value && !template.IsActive)
             {
                 await DeactivateOtherTemplatesAsync(template.DocumentType, template.Id);
+                isBeingActivated = true;
             }
             template.IsActive = request.IsActive.Value;
         }
 
         _unitOfWork.DocumentTemplates.Update(template);
         await _unitOfWork.SaveChangesAsync();
+
+        await TryLogAuditAsync(actorUserId, isBeingActivated ? "TEMPLATE_ACTIVATED" : "TEMPLATE_UPDATED", $"Updated template \"{template.Name}\" ({template.DocumentType}).");
 
         return new TemplateDto
         {
@@ -133,7 +157,7 @@ public class TemplateService : ITemplateService
         };
     }
 
-    public async Task DeleteTemplateAsync(Guid id)
+    public async Task DeleteTemplateAsync(Guid actorUserId, Guid id)
     {
         var template = await _unitOfWork.DocumentTemplates.GetByIdAsync(id);
         if (template == null)
@@ -141,6 +165,8 @@ public class TemplateService : ITemplateService
 
         _unitOfWork.DocumentTemplates.Remove(template);
         await _unitOfWork.SaveChangesAsync();
+
+        await TryLogAuditAsync(actorUserId, "TEMPLATE_DELETED", $"Deleted template \"{template.Name}\" ({template.DocumentType}).");
     }
 
     private async Task DeactivateOtherTemplatesAsync(string documentType, Guid? excludeTemplateId)

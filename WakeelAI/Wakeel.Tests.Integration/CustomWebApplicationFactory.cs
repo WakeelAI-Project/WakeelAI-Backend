@@ -6,6 +6,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Wakeel.Infrastructure.Persistence;
 using Wakeel.Application.Interfaces;
+using Wakeel.Infrastructure.Security;
 using Wakeel.Infrastructure.Services;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -19,6 +20,32 @@ namespace Wakeel.Tests.Integration;
 /// </summary>
 public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IDisposable
 {
+    /// <summary>
+    /// appsettings.json intentionally ships with an empty Jwt:SecretKey (FIX-S1: secrets are
+    /// never committed). The JWT bearer handler reads that key EAGERLY while services are being
+    /// registered - i.e. before <c>ConfigureAppConfiguration</c> deltas from this factory are
+    /// merged in - so the test signing key has to be visible to the very first configuration
+    /// build. An environment variable is the only provider available that early.
+    /// This is a throwaway test key, not a secret.
+    /// </summary>
+    static CustomWebApplicationFactory()
+    {
+        Environment.SetEnvironmentVariable(
+            "Jwt__SecretKey",
+            "test-signing-key-for-integration-tests-only-32+chars");
+
+        // FIX-S3: Program.cs reads Cors:AllowedOrigins synchronously while registering
+        // services, before this factory's ConfigureAppConfiguration delta is merged in
+        // (same timing issue as Jwt:SecretKey above) - an environment variable is the
+        // only provider available that early.
+        Environment.SetEnvironmentVariable(
+            "Cors__AllowedOrigins__0",
+            "https://allowed.integrationtest.local");
+    }
+
+    /// <summary>Throwaway 32-byte AES key for tests only - not a secret, never used outside this test host.</summary>
+    private static readonly string TestEncryptionKey = Convert.ToBase64String(new byte[32]);
+
     private readonly string _testDatabaseName = $"WakeelTestDb_{Guid.NewGuid():N}";
     private string TestConnectionString
     {
@@ -48,7 +75,14 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IDisp
                 new KeyValuePair<string, string?>("ConnectionStrings:DefaultConnection", TestConnectionString),
                 // Required by InternalApiKeyMiddleware and AiNodeClient HttpClient at startup
                 new KeyValuePair<string, string?>("AiNode:InternalApiKey", "test-internal-key"),
-                new KeyValuePair<string, string?>("AiNode:BaseUrl", "http://localhost:3001")
+                new KeyValuePair<string, string?>("AiNode:BaseUrl", "http://localhost:3001"),
+                // appsettings.json intentionally ships with an empty Jwt:SecretKey (secrets are
+                // never committed), so the test host must supply its own signing key. Must be at
+                // least 32 characters for HMAC-SHA256.
+                new KeyValuePair<string, string?>("Jwt:SecretKey", "test-signing-key-for-integration-tests-only-32+chars"),
+                // FIX-26: EmployeeProfile's Salary/NationalId converters need a valid key at
+                // model-build time - appsettings.json ships with an empty placeholder.
+                new KeyValuePair<string, string?>("Encryption:Key", TestEncryptionKey)
             });
         });
 
@@ -76,9 +110,14 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IDisp
             var optionsBuilder = new DbContextOptionsBuilder<ApplicationDbContext>();
             optionsBuilder.UseSqlServer(TestConnectionString);
 
+            var encryptionConfig = new ConfigurationBuilder()
+                .AddInMemoryCollection(new[] { new KeyValuePair<string, string?>("Encryption:Key", TestEncryptionKey) })
+                .Build();
+
             using var dbContext = new ApplicationDbContext(
                 optionsBuilder.Options,
-                new DesignTimeCurrentTenantService()
+                new DesignTimeCurrentTenantService(),
+                new FieldEncryptionService(encryptionConfig)
             );
             dbContext.Database.EnsureDeleted();
         }

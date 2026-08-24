@@ -40,6 +40,10 @@ public class EmployeesEndpointTests : IClassFixture<CustomWebApplicationFactory>
         {
             var userIds = await db.Users.Where(u => u.CompanyId == companyId).Select(u => u.Id).ToListAsync();
 
+            // FIX-12: several employee/dashboard operations now write AuditLog rows
+            // (EMPLOYEE_CREATED, EMPLOYEE_UPDATED, EMPLOYEE_DELETED, ...) referencing the
+            // acting user - clean those up before deleting Users or the FK blocks it.
+            db.AuditLogs.RemoveRange(db.AuditLogs.Where(a => a.CompanyId == companyId));
             db.LeaveBalances.RemoveRange(db.LeaveBalances.Where(lb => userIds.Contains(lb.EmployeeId)));
             db.EmployeeProfiles.RemoveRange(db.EmployeeProfiles.Where(ep => userIds.Contains(ep.UserId)));
             db.RefreshTokens.RemoveRange(db.RefreshTokens.Where(rt => userIds.Contains(rt.UserId)));
@@ -87,9 +91,72 @@ public class EmployeesEndpointTests : IClassFixture<CustomWebApplicationFactory>
 
         var leaveBalances = await db.LeaveBalances.Where(lb => lb.EmployeeId == recordId).ToListAsync();
         leaveBalances.Should().HaveCount(3);
+        // Hired 1 Jan of the balance's own year, so the employed fraction of that year is
+        // 1.0 and the pro-rated first-year Annual amount equals the full 15-day base.
         leaveBalances.Should().ContainSingle(lb => lb.LeaveType == "Annual" && lb.TotalDays == 15 && lb.UsedDays == 0);
-        leaveBalances.Should().ContainSingle(lb => lb.LeaveType == "Sick" && lb.TotalDays == 10 && lb.UsedDays == 0);
-        leaveBalances.Should().ContainSingle(lb => lb.LeaveType == "Unpaid" && lb.TotalDays == 0 && lb.UsedDays == 0);
+        // FIX-01: Sick has no fixed day quota under Law No. 14/2025 and Unpaid has no
+        // statutory quota - both are now uncapped (null), not a hardcoded number.
+        leaveBalances.Should().ContainSingle(lb => lb.LeaveType == "Sick" && lb.TotalDays == null && lb.UsedDays == 0);
+        leaveBalances.Should().ContainSingle(lb => lb.LeaveType == "Unpaid" && lb.TotalDays == null && lb.UsedDays == 0);
+    }
+
+    [Fact]
+    public async Task Create_NationalIdAndSalary_AreEncryptedAtRestButDecryptedThroughTheApi()
+    {
+        // FIX-26: EMPLOYEE_PROFILE.NationalId/Salary must never be readable as plaintext by
+        // anyone with a raw DB connection, while every normal read path (this API) keeps
+        // seeing the real value transparently.
+        var (hrToken, _, departmentId) = await SeedCompanyWithHrAsync();
+        const string plaintextNationalId = "29912345678901";
+        const decimal plaintextSalary = 15750.50m;
+
+        var createResponse = await SendAsync(HttpMethod.Post, "/api/employees", hrToken, new
+        {
+            full_name = "Encrypted Fields Employee",
+            email = $"emp_{Guid.NewGuid():N}@integrationtest.local",
+            job_title = "Analyst",
+            department_id = departmentId,
+            hire_date = "2026-01-01",
+            salary = plaintextSalary,
+            contract_type = "Full-Time",
+            national_id = plaintextNationalId
+        });
+        createResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+        var createBody = await createResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var recordId = createBody.GetProperty("record_id").GetGuid();
+
+        // Read the raw column values directly - bypassing the EF Core encryption converters
+        // entirely - to prove what is actually stored on disk.
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var connection = db.Database.GetDbConnection();
+            await connection.OpenAsync();
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT Salary, NationalId FROM EMPLOYEE_PROFILE WHERE UserId = @userId";
+            var parameter = command.CreateParameter();
+            parameter.ParameterName = "@userId";
+            parameter.Value = recordId;
+            command.Parameters.Add(parameter);
+
+            using var reader = await command.ExecuteReaderAsync();
+            (await reader.ReadAsync()).Should().BeTrue();
+            var rawSalary = reader.GetString(0);
+            var rawNationalId = reader.GetString(1);
+
+            rawSalary.Should().StartWith("v1:", "the column must hold ciphertext, not a plain decimal");
+            rawSalary.Should().NotContain(plaintextSalary.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            rawNationalId.Should().StartWith("v1:", "the column must hold ciphertext, not the plaintext national ID");
+            rawNationalId.Should().NotContain(plaintextNationalId);
+        }
+
+        // Read it back through the normal API path - it must come back as the exact
+        // original plaintext, decrypted transparently.
+        var getResponse = await SendAsync(HttpMethod.Get, $"/api/employees/{recordId}", hrToken);
+        getResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var getBody = await getResponse.Content.ReadFromJsonAsync<JsonElement>();
+        getBody.GetProperty("national_id").GetString().Should().Be(plaintextNationalId);
+        getBody.GetProperty("salary").GetDecimal().Should().Be(plaintextSalary);
     }
 
     [Fact]
@@ -132,6 +199,26 @@ public class EmployeesEndpointTests : IClassFixture<CustomWebApplicationFactory>
         });
 
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task Create_GivenNoToken_ShouldReturn401()
+    {
+        // FIX-S3: Create used to carry no [Authorize] attribute at all - it was only safe
+        // because it manually checked claims that an anonymous caller would never have.
+        // This asserts the endpoint now rejects unauthenticated calls declaratively.
+        var response = await _client.PostAsJsonAsync("/api/employees", new
+        {
+            full_name = "Should Not Be Created",
+            email = $"emp_{Guid.NewGuid():N}@integrationtest.local",
+            job_title = "Analyst",
+            department_id = Guid.NewGuid(),
+            hire_date = "2026-01-01",
+            salary = 12000,
+            contract_type = "Full-Time"
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
     [Fact]
@@ -521,6 +608,70 @@ public class EmployeesEndpointTests : IClassFixture<CustomWebApplicationFactory>
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         var user = await db.Users.FirstAsync(u => u.Id == recordId);
         user.PhotoUrl.Should().BeNull();
+    }
+
+    // ------------------------------------------------------------
+    // ExportPersonalData (FIX-25)
+    // ------------------------------------------------------------
+
+    [Fact]
+    public async Task ExportPersonalData_GivenHrCaller_ShouldReturn200WithFullBundle()
+    {
+        var (hrToken, _, departmentId) = await SeedCompanyWithHrAsync();
+        var recordId = await CreateEmployeeAsync(hrToken, departmentId);
+
+        var response = await SendAsync(HttpMethod.Get, $"/api/employees/{recordId}/personal-data-export", hrToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("user").GetProperty("full_name").GetString().Should().Be("Seeded Employee");
+        body.GetProperty("profile").GetProperty("job_title").GetString().Should().Be("Analyst");
+        body.GetProperty("leave_balances").GetArrayLength().Should().Be(3);
+    }
+
+    [Fact]
+    public async Task ExportPersonalData_GivenTheEmployeeThemselves_ShouldReturn200()
+    {
+        var (hrToken, _, departmentId) = await SeedCompanyWithHrAsync();
+        var recordId = await CreateEmployeeAsync(hrToken, departmentId);
+        var employeeToken = await LoginAsEmployeeAsync(recordId);
+
+        var response = await SendAsync(HttpMethod.Get, $"/api/employees/{recordId}/personal-data-export", employeeToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task ExportPersonalData_GivenAnotherEmployee_ShouldReturn403()
+    {
+        var (hrToken, _, departmentId) = await SeedCompanyWithHrAsync();
+        var recordId = await CreateEmployeeAsync(hrToken, departmentId);
+        var otherRecordId = await CreateEmployeeAsync(hrToken, departmentId);
+        var otherEmployeeToken = await LoginAsEmployeeAsync(otherRecordId);
+
+        var response = await SendAsync(HttpMethod.Get, $"/api/employees/{recordId}/personal-data-export", otherEmployeeToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task ExportPersonalData_GivenAnotherCompanysHr_ShouldReturn404()
+    {
+        var (hrTokenA, _, departmentIdA) = await SeedCompanyWithHrAsync();
+        var (hrTokenB, _, _) = await SeedCompanyWithHrAsync();
+        var recordIdA = await CreateEmployeeAsync(hrTokenA, departmentIdA);
+
+        var response = await SendAsync(HttpMethod.Get, $"/api/employees/{recordIdA}/personal-data-export", hrTokenB);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task ExportPersonalData_GivenNoToken_ShouldReturn401()
+    {
+        var response = await _client.GetAsync($"/api/employees/{Guid.NewGuid()}/personal-data-export");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
     // ------------------------------------------------------------

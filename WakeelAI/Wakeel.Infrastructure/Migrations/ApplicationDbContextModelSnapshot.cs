@@ -228,8 +228,9 @@ namespace Wakeel.Infrastructure.Migrations
                     b.Property<string>("NationalId")
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<decimal>("Salary")
-                        .HasColumnType("decimal(18,2)");
+                    b.Property<string>("Salary")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("TimeZoneId")
                         .HasMaxLength(100)
@@ -374,6 +375,9 @@ namespace Wakeel.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<int?>("BaseDays")
+                        .HasColumnType("int");
+
                     b.Property<int?>("DefaultDays")
                         .HasColumnType("int");
 
@@ -381,6 +385,18 @@ namespace Wakeel.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
+
+                    b.Property<int?>("MinimumServiceMonths")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("SeniorDays")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("SeniorityYears")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("StandardDays")
+                        .HasColumnType("int");
 
                     b.HasKey("Id");
 
@@ -390,13 +406,16 @@ namespace Wakeel.Infrastructure.Migrations
                         new
                         {
                             Id = new Guid("11111111-1111-1111-1111-111111111111"),
-                            DefaultDays = 15,
-                            LeaveType = "Annual"
+                            BaseDays = 15,
+                            LeaveType = "Annual",
+                            MinimumServiceMonths = 6,
+                            SeniorDays = 30,
+                            SeniorityYears = 10,
+                            StandardDays = 21
                         },
                         new
                         {
                             Id = new Guid("22222222-2222-2222-2222-222222222222"),
-                            DefaultDays = 10,
                             LeaveType = "Sick"
                         },
                         new
@@ -415,6 +434,9 @@ namespace Wakeel.Infrastructure.Migrations
                     b.Property<string>("AttachmentUrl")
                         .HasMaxLength(2000)
                         .HasColumnType("nvarchar(2000)");
+
+                    b.Property<DateTime?>("CancelledAt")
+                        .HasColumnType("datetime2");
 
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uniqueidentifier");

@@ -24,6 +24,13 @@ public static class InfrastructureServiceCollectionExtensions
         IConfiguration configuration
     )
     {
+        // FIX-26: registered before ApplicationDbContext because the context's
+        // OnModelCreating needs it (via constructor injection) to build the EmployeeProfile
+        // encryption converters. Stateless and thread-safe once constructed, so a singleton.
+        services.AddSingleton<IFieldEncryptionService, FieldEncryptionService>();
+        // FIX-26 data step - see IEmployeeProfileEncryptionBackfillService for when to run it.
+        services.AddScoped<IEmployeeProfileEncryptionBackfillService, EmployeeProfileEncryptionBackfillService>();
+
         services.AddDbContext<ApplicationDbContext>(options =>
             options.UseSqlServer(configuration.GetConnectionString("DefaultConnection")));
 
@@ -47,9 +54,15 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddMemoryCache();
 
 
-        // Use file-based email sender for Development if SMTP is not configured
+        // Use file-based email sender when SMTP is not fully configured. appsettings.json ships
+        // with blank SMTP credentials (they are secrets), so a fresh clone falls back to the
+        // file sender until the real values are supplied via User Secrets / environment variables.
         var smtpHost = configuration["Smtp:Host"];
-        if (string.IsNullOrWhiteSpace(smtpHost))
+        var smtpUser = configuration["Smtp:User"];
+        var smtpPass = configuration["Smtp:Pass"];
+        if (string.IsNullOrWhiteSpace(smtpHost)
+            || string.IsNullOrWhiteSpace(smtpUser)
+            || string.IsNullOrWhiteSpace(smtpPass))
             services.AddScoped<IEmailSender, FileEmailSender>();
         else
             services.AddScoped<IEmailSender, SmtpEmailSender>();

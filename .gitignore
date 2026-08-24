@@ -4,5 +4,19 @@ obj/
 *.user
 *.suo
 *repomix*
-**/appsettings.Development.json
 **/wwwroot/uploads/
+
+# Local configuration and secrets - NEVER commit these.
+# appsettings.json ships with empty placeholders; real values live in
+# User Secrets (local dev) or environment variables (deployment).
+# appsettings.Example.json is intentionally tracked as documentation.
+**/appsettings.Development.json
+**/appsettings.Production.json
+**/appsettings.Local.json
+**/appsettings.*.local.json
+**/secrets.json
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12

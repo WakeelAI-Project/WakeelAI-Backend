@@ -19,13 +19,28 @@ public class UserService : IUserService
     private readonly IPasswordHasher _passwordHasher;
     private readonly ILogger<UserService> _logger;
     private readonly IEmailSender _emailSender;
+    private readonly IAuditLogService _auditLogService;
 
-    public UserService(IUnitOfWork unitOfWork, IPasswordHasher passwordHasher, ILogger<UserService> logger, IEmailSender emailSender)
+    public UserService(IUnitOfWork unitOfWork, IPasswordHasher passwordHasher, ILogger<UserService> logger, IEmailSender emailSender, IAuditLogService auditLogService)
     {
         _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
         _passwordHasher = passwordHasher ?? throw new ArgumentNullException(nameof(passwordHasher));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _emailSender = emailSender ?? throw new ArgumentNullException(nameof(emailSender));
+        _auditLogService = auditLogService ?? throw new ArgumentNullException(nameof(auditLogService));
+    }
+
+    /// <summary>Writes an audit entry without letting a failure affect the caller's result.</summary>
+    private async Task TryLogAuditAsync(Guid? userId, string action, string details)
+    {
+        try
+        {
+            await _auditLogService.LogActionAsync(userId, action, details);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to write {Action} audit entry.", action);
+        }
     }
 
     public async Task<InviteUserResponse> InviteUserAsync(Guid ownerUserId, Guid companyId, InviteUserRequest request, CancellationToken cancellationToken = default)
@@ -70,6 +85,8 @@ public class UserService : IUserService
 
         await _unitOfWork.Users.AddAsync(user, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        await TryLogAuditAsync(ownerUserId, "USER_INVITED", $"Invited {user.Role} \"{user.FullName}\" ({user.Email}).");
 
         // send email with credentials and temp password
         var subject = "You're invited to Wakeel";
@@ -149,7 +166,7 @@ public class UserService : IUserService
         };
     }
 
-    public async Task<UserListItem?> UpdateUserStatusAsync(Guid companyId, Guid userId, bool isActive, CancellationToken cancellationToken = default)
+    public async Task<UserListItem?> UpdateUserStatusAsync(Guid companyId, Guid actorUserId, Guid userId, bool isActive, CancellationToken cancellationToken = default)
     {
         var user = await _unitOfWork.Users.GetByIdAsync(userId, cancellationToken);
         if (user is null || user.CompanyId != companyId)
@@ -158,6 +175,8 @@ public class UserService : IUserService
         user.IsActive = isActive;
         _unitOfWork.Users.Update(user);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        await TryLogAuditAsync(actorUserId, isActive ? "USER_ACTIVATED" : "USER_DEACTIVATED", $"{(isActive ? "Activated" : "Deactivated")} user \"{user.FullName}\" ({user.Email}).");
 
         return new UserListItem
         {

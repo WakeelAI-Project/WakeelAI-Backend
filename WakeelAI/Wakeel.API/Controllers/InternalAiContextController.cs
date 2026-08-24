@@ -6,6 +6,9 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Wakeel.Application.DTOs.AiIntegrations;
+using Wakeel.Application.Interfaces;
+using Wakeel.Application.Interfaces.Repositories;
+using Wakeel.Application.Interfaces.Services;
 using Wakeel.Infrastructure.Persistence;
 
 namespace Wakeel.API.Controllers;
@@ -21,10 +24,20 @@ namespace Wakeel.API.Controllers;
 public class InternalAiContextController : ControllerBase
 {
     private readonly ApplicationDbContext _dbContext;
+    private readonly IUnitOfWork _unitOfWork;
+    private readonly ILeaveBalanceProvisioningService _leaveBalanceProvisioningService;
+    private readonly IEmployeeService _employeeService;
 
-    public InternalAiContextController(ApplicationDbContext dbContext)
+    public InternalAiContextController(
+        ApplicationDbContext dbContext,
+        IUnitOfWork unitOfWork,
+        ILeaveBalanceProvisioningService leaveBalanceProvisioningService,
+        IEmployeeService employeeService)
     {
         _dbContext = dbContext;
+        _unitOfWork = unitOfWork;
+        _leaveBalanceProvisioningService = leaveBalanceProvisioningService;
+        _employeeService = employeeService;
     }
 
     private Guid GetXUserId() => Guid.Parse(Request.Headers["X-User-Id"]!);
@@ -43,7 +56,6 @@ public class InternalAiContextController : ControllerBase
         var profile = await _dbContext.EmployeeProfiles
             .Include(p => p.User)
             .Include(p => p.Department)
-            .Include(p => p.LeaveBalances)
             .FirstOrDefaultAsync(p => p.UserId == userId && p.User.CompanyId == companyId, cancellationToken);
 
         if (profile == null)
@@ -51,9 +63,21 @@ public class InternalAiContextController : ControllerBase
             return NotFound(new { error = new { code = "leave_request_not_found", message = "Employee not found." } });
         }
 
-        var annualBalance = profile.LeaveBalances.FirstOrDefault(b => b.LeaveType == "Annual");
-        var sickBalance = profile.LeaveBalances.FirstOrDefault(b => b.LeaveType == "Sick");
-        var unpaidBalance = profile.LeaveBalances.FirstOrDefault(b => b.LeaveType == "Unpaid");
+        // Provision on read and filter by the CURRENT year - matching EmployeeService's own
+        // GetEmployeeAsync. Without a year filter, once a second year of balances exists this
+        // endpoint and the mobile Home screen would report different numbers for the same
+        // employee for whichever row LINQ happened to return first.
+        var currentYear = DateTime.UtcNow.Year;
+        await _leaveBalanceProvisioningService.EnsureYearAsync(userId, currentYear, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        var balances = await _dbContext.LeaveBalances
+            .Where(lb => lb.EmployeeId == userId && lb.Year == currentYear)
+            .ToListAsync(cancellationToken);
+
+        var annualBalance = balances.FirstOrDefault(b => b.LeaveType == "Annual");
+        var sickBalance = balances.FirstOrDefault(b => b.LeaveType == "Sick");
+        var unpaidBalance = balances.FirstOrDefault(b => b.LeaveType == "Unpaid");
 
         var response = new EmployeeContextResponse
         {
@@ -68,23 +92,29 @@ public class InternalAiContextController : ControllerBase
             HireDate = profile.HireDate.ToString("yyyy-MM-dd"),
             LeaveBalance = new EmployeeLeaveBalancesDto
             {
+                // Annual always carries a real cap, so ?? 0 is safe here - it never
+                // silently hides a genuinely uncapped balance the way it would for
+                // Sick/Unpaid, which report their true null (no cap) instead.
                 Annual = annualBalance != null ? new LeaveBalanceContextDto
                 {
                     TotalDays = annualBalance.TotalDays ?? 0,
                     UsedDays = annualBalance.UsedDays,
-                    RemainingDays = (annualBalance.TotalDays ?? 0) - annualBalance.UsedDays
+                    RemainingDays = (annualBalance.TotalDays ?? 0) - annualBalance.UsedDays,
+                    IsUncapped = false
                 } : null,
                 Sick = sickBalance != null ? new LeaveBalanceContextDto
                 {
-                    TotalDays = sickBalance.TotalDays ?? 0,
+                    TotalDays = sickBalance.TotalDays,
                     UsedDays = sickBalance.UsedDays,
-                    RemainingDays = (sickBalance.TotalDays ?? 0) - sickBalance.UsedDays
+                    RemainingDays = sickBalance.TotalDays.HasValue ? sickBalance.TotalDays.Value - sickBalance.UsedDays : null,
+                    IsUncapped = !sickBalance.TotalDays.HasValue
                 } : null,
                 Unpaid = unpaidBalance != null ? new LeaveBalanceContextDto
                 {
-                    TotalDays = unpaidBalance.TotalDays ?? 0,
+                    TotalDays = unpaidBalance.TotalDays,
                     UsedDays = unpaidBalance.UsedDays,
-                    RemainingDays = (unpaidBalance.TotalDays ?? 0) - unpaidBalance.UsedDays
+                    RemainingDays = unpaidBalance.TotalDays.HasValue ? unpaidBalance.TotalDays.Value - unpaidBalance.UsedDays : null,
+                    IsUncapped = !unpaidBalance.TotalDays.HasValue
                 } : null
             }
         };
@@ -121,6 +151,39 @@ public class InternalAiContextController : ControllerBase
             WorkingHours = string.IsNullOrEmpty(company.WorkingHours) ? null : company.WorkingHours,
             RegisteredAt = company.RegisteredAt,
             PolicyAvailable = policyAvailable
+        };
+
+        return Ok(response);
+    }
+
+    /// <summary>
+    /// FIX-17: lets the AI resolve an employee typed by name (e.g. from the general
+    /// Assistant page, where no <c>targetEmployeeId</c> is set yet) instead of failing
+    /// outright. HR_Manager-only, same as the document-generation skill that calls it.
+    /// </summary>
+    [HttpGet("employees/search")]
+    public async Task<IActionResult> SearchEmployees([FromQuery] string name, CancellationToken cancellationToken)
+    {
+        var companyId = GetXCompanyId();
+        var role = GetXRole();
+
+        if (role != "HR_Manager")
+        {
+            return Forbid();
+        }
+
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return Ok(new EmployeeSearchResponse());
+        }
+
+        var result = await _employeeService.ListEmployeesAsync(companyId, status: null, search: name, page: 1, limit: 5, cancellationToken);
+
+        var response = new EmployeeSearchResponse
+        {
+            Employees = result.Data
+                .Select(e => new EmployeeSearchResultDto { EmployeeId = e.UserId.ToString(), FullName = e.FullName })
+                .ToList()
         };
 
         return Ok(response);

@@ -19,6 +19,7 @@ public class EmployeesController(IEmployeeService employeeService, IFileService 
     private const long MaxPhotoSizeBytes = 5 * 1024 * 1024; // 5 MB
 
     [HttpPost]
+    [Authorize(Roles = "HR_Manager")]
     public async Task<IActionResult> Create([FromBody] CreateEmployeeRequest request, CancellationToken cancellationToken)
     {
         if (!ModelState.IsValid)
@@ -63,12 +64,13 @@ public class EmployeesController(IEmployeeService employeeService, IFileService 
             return BadRequest(new ApiErrorResponse { Error = "validation_error", Message = "Invalid payload.", Status = 400 });
 
         var companyIdClaim = User.FindFirst("company_id")?.Value;
-        if (!Guid.TryParse(companyIdClaim, out var companyId))
+        var actorUserIdClaim = User.FindFirst("user_id")?.Value;
+        if (!Guid.TryParse(companyIdClaim, out var companyId) || !Guid.TryParse(actorUserIdClaim, out var actorUserId))
             return Forbid();
 
         try
         {
-            var updated = await employeeService.UpdateEmployeeAsync(companyId, recordId, request, cancellationToken);
+            var updated = await employeeService.UpdateEmployeeAsync(companyId, actorUserId, recordId, request, cancellationToken);
             if (updated is null)
                 return NotFound(new ApiErrorResponse { Error = "employee_not_found", Message = "Employee not found.", Status = 404 });
 
@@ -206,14 +208,65 @@ public class EmployeesController(IEmployeeService employeeService, IFileService 
     }
 
     [Authorize(Roles = "HR_Manager")]
+    [HttpPut("{recordId:guid}/leave-balances/{leaveType}")]
+    public async Task<IActionResult> AdjustLeaveBalance([FromRoute] Guid recordId, [FromRoute] string leaveType, [FromBody] AdjustLeaveBalanceRequest request, CancellationToken cancellationToken)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(new ApiErrorResponse { Error = "validation_error", Message = "Invalid payload.", Status = 400 });
+
+        var companyIdClaim = User.FindFirst("company_id")?.Value;
+        var userIdClaim = User.FindFirst("user_id")?.Value;
+        if (!Guid.TryParse(companyIdClaim, out var companyId) || !Guid.TryParse(userIdClaim, out var actorUserId))
+            return Forbid();
+
+        try
+        {
+            var updated = await employeeService.AdjustLeaveBalanceAsync(companyId, actorUserId, recordId, leaveType, request, cancellationToken);
+            if (updated is null)
+                return NotFound(new ApiErrorResponse { Error = "employee_not_found", Message = "Employee not found.", Status = 404 });
+
+            return Ok(updated);
+        }
+        catch (InvalidOperationException ex) when (ex.Message == "validation_error")
+        {
+            return BadRequest(new ApiErrorResponse { Error = "validation_error", Message = "total_days cannot be less than days already used.", Status = 400 });
+        }
+    }
+
+    [Authorize(Roles = "HR_Manager,Employee")]
+    [HttpGet("{recordId:guid}/personal-data-export")]
+    public async Task<IActionResult> ExportPersonalData([FromRoute] Guid recordId, CancellationToken cancellationToken)
+    {
+        var companyIdClaim = User.FindFirst("company_id")?.Value;
+        var userIdClaim = User.FindFirst("user_id")?.Value;
+        if (!Guid.TryParse(companyIdClaim, out var companyId) || !Guid.TryParse(userIdClaim, out var userId))
+            return Forbid();
+
+        // FIX-25: HR can export any employee in their company; an Employee may only
+        // export their own data - never another employee's, even in the same company.
+        var roleClaim = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value
+                        ?? User.FindFirst("role")?.Value;
+        var isHr = string.Equals(roleClaim, "HR_Manager", StringComparison.OrdinalIgnoreCase);
+        if (!isHr && recordId != userId)
+            return Forbid();
+
+        var export = await employeeService.ExportPersonalDataAsync(companyId, userId, recordId, cancellationToken);
+        if (export is null)
+            return NotFound(new ApiErrorResponse { Error = "employee_not_found", Message = "Employee not found.", Status = 404 });
+
+        return Ok(export);
+    }
+
+    [Authorize(Roles = "HR_Manager")]
     [HttpDelete("{recordId:guid}")]
     public async Task<IActionResult> Deactivate([FromRoute] Guid recordId, CancellationToken cancellationToken)
     {
         var companyIdClaim = User.FindFirst("company_id")?.Value;
-        if (!Guid.TryParse(companyIdClaim, out var companyId))
+        var actorUserIdClaim = User.FindFirst("user_id")?.Value;
+        if (!Guid.TryParse(companyIdClaim, out var companyId) || !Guid.TryParse(actorUserIdClaim, out var actorUserId))
             return Forbid();
 
-        var deactivated = await employeeService.DeactivateEmployeeAsync(companyId, recordId, cancellationToken);
+        var deactivated = await employeeService.DeactivateEmployeeAsync(companyId, actorUserId, recordId, cancellationToken);
         if (!deactivated)
             return NotFound(new ApiErrorResponse { Error = "employee_not_found", Message = "Employee not found.", Status = 404 });
 

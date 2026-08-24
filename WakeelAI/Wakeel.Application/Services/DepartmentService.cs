@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Wakeel.Application.DTOs.Departments;
 using Wakeel.Application.Interfaces;
 using Wakeel.Application.Interfaces.Repositories;
@@ -16,25 +17,43 @@ namespace Wakeel.Application.Services;
 public class DepartmentService : IDepartmentService
 {
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IAuditLogService _auditLogService;
+    private readonly ILogger<DepartmentService> _logger;
 
     /// <summary>
     /// Initializes a new instance of the DepartmentService class.
     /// </summary>
     /// <param name="unitOfWork">The unit of work for data access.</param>
     /// <exception cref="ArgumentNullException">Thrown if unitOfWork is null.</exception>
-    public DepartmentService(IUnitOfWork unitOfWork)
+    public DepartmentService(IUnitOfWork unitOfWork, IAuditLogService auditLogService, ILogger<DepartmentService> logger)
     {
         _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
+        _auditLogService = auditLogService ?? throw new ArgumentNullException(nameof(auditLogService));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    }
+
+    /// <summary>Writes an audit entry without letting a failure affect the caller's result.</summary>
+    private async Task TryLogAuditAsync(Guid? userId, string action, string details)
+    {
+        try
+        {
+            await _auditLogService.LogActionAsync(userId, action, details);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to write {Action} audit entry.", action);
+        }
     }
 
     /// <summary>
     /// Creates a new department for the specified company.
     /// </summary>
     /// <param name="companyId">The company ID that owns the new department.</param>
+    /// <param name="actorUserId">The user creating the department.</param>
     /// <param name="request">The department creation request.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     /// <returns>The created department response.</returns>
-    public async Task<DepartmentResponse> CreateAsync(Guid companyId, CreateDepartmentRequest request, CancellationToken cancellationToken = default)
+    public async Task<DepartmentResponse> CreateAsync(Guid companyId, Guid actorUserId, CreateDepartmentRequest request, CancellationToken cancellationToken = default)
     {
         var department = new Department
         {
@@ -48,6 +67,8 @@ public class DepartmentService : IDepartmentService
 
         await _unitOfWork.Departments.AddAsync(department, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        await TryLogAuditAsync(actorUserId, "DEPARTMENT_CREATED", $"Created department \"{department.Name}\".");
 
         return ToResponse(department);
     }
@@ -116,7 +137,7 @@ public class DepartmentService : IDepartmentService
     /// <param name="request">The department update request.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     /// <returns>The updated department response, or null if not found or deleted.</returns>
-    public async Task<DepartmentResponse?> UpdateAsync(Guid companyId, Guid departmentId, UpdateDepartmentRequest request, CancellationToken cancellationToken = default)
+    public async Task<DepartmentResponse?> UpdateAsync(Guid companyId, Guid actorUserId, Guid departmentId, UpdateDepartmentRequest request, CancellationToken cancellationToken = default)
     {
         var department = await _unitOfWork.Departments.GetByIdAsync(departmentId, cancellationToken);
 
@@ -131,6 +152,8 @@ public class DepartmentService : IDepartmentService
 
         _unitOfWork.Departments.Update(department);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        await TryLogAuditAsync(actorUserId, "DEPARTMENT_UPDATED", $"Updated department \"{department.Name}\".");
 
         return ToResponse(department);
     }
@@ -147,7 +170,7 @@ public class DepartmentService : IDepartmentService
     /// - Success: Whether the deletion succeeded.
     /// - ErrorCode: An error code if deletion failed, null if successful.
     /// </returns>
-    public async Task<(bool Success, string? ErrorCode)> DeleteAsync(Guid companyId, Guid departmentId, CancellationToken cancellationToken = default)
+    public async Task<(bool Success, string? ErrorCode)> DeleteAsync(Guid companyId, Guid actorUserId, Guid departmentId, CancellationToken cancellationToken = default)
     {
         var department = await _unitOfWork.Departments.GetByIdAsync(departmentId, cancellationToken);
 
@@ -167,6 +190,8 @@ public class DepartmentService : IDepartmentService
         department.IsDeleted = true;
         _unitOfWork.Departments.Update(department);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        await TryLogAuditAsync(actorUserId, "DEPARTMENT_DELETED", $"Deleted department \"{department.Name}\".");
 
         return (true, null);
     }

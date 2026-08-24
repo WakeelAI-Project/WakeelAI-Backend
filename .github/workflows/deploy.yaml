@@ -30,9 +30,18 @@ jobs:
 
       - name: Run tests
         run: dotnet test WakeelAI.slnx --configuration Release --no-build
-        continue-on-error: true
 
       - name: Publish API
+        env:
+          # appsettings.json is committed with EMPTY secret placeholders on purpose.
+          # Real values are injected here and, at runtime, by the hosting environment.
+          ConnectionStrings__DefaultConnection: ${{ secrets.DB_CONNECTION_STRING }}
+          Jwt__SecretKey: ${{ secrets.JWT_SECRET_KEY }}
+          AiNode__InternalApiKey: ${{ secrets.AI_INTERNAL_API_KEY }}
+          Encryption__Key: ${{ secrets.ENCRYPTION_KEY }}
+          Smtp__User: ${{ secrets.SMTP_USER }}
+          Smtp__Pass: ${{ secrets.SMTP_PASS }}
+          Smtp__From: ${{ secrets.SMTP_FROM }}
         run: |
           dotnet publish ./Wakeel.API/Wakeel.API.csproj `
             --configuration Release `
@@ -43,6 +52,11 @@ jobs:
         run: dotnet tool install --global dotnet-ef --version 10.0.10
 
       - name: Apply database migrations
+        env:
+          ConnectionStrings__DefaultConnection: ${{ secrets.DB_CONNECTION_STRING }}
+          Jwt__SecretKey: ${{ secrets.JWT_SECRET_KEY }}
+          AiNode__InternalApiKey: ${{ secrets.AI_INTERNAL_API_KEY }}
+          Encryption__Key: ${{ secrets.ENCRYPTION_KEY }}
         run: dotnet ef database update --project Wakeel.Infrastructure/Wakeel.Infrastructure.csproj --startup-project Wakeel.API/Wakeel.API.csproj
 
       - name: Deploy

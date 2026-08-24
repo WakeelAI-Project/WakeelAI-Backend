@@ -50,12 +50,19 @@ public class EmployeeLeaveBalancesDto
 
 public class LeaveBalanceContextDto
 {
+    /// <summary>Null means uncapped (Sick, Unpaid) - never coerced to 0.</summary>
     [JsonPropertyName("total_days")]
-    public int TotalDays { get; set; }
+    public int? TotalDays { get; set; }
 
     [JsonPropertyName("used_days")]
     public int UsedDays { get; set; }
 
+    /// <summary>Null means uncapped (Sick, Unpaid) - never coerced to 0.</summary>
     [JsonPropertyName("remaining_days")]
-    public int RemainingDays { get; set; }
+    public int? RemainingDays { get; set; }
+
+    /// <summary>True when this leave type carries no day cap (Sick, Unpaid), so the
+    /// assistant can describe it as "no cap" instead of inferring meaning from null.</summary>
+    [JsonPropertyName("is_uncapped")]
+    public bool IsUncapped { get; set; }
 }

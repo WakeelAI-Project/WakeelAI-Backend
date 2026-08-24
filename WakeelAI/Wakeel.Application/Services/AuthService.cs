@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
@@ -24,6 +25,7 @@ public class AuthService : IAuthService
     private readonly IRefreshTokenHasher _refreshTokenHasher;
     private readonly IEmailSender _emailSender;
     private readonly ILogger<AuthService> _logger;
+    private readonly IAuditLogService _auditLogService;
 
     public AuthService(
         IUnitOfWork unitOfWork,
@@ -31,7 +33,8 @@ public class AuthService : IAuthService
         IJwtTokenGenerator tokenGenerator,
         IRefreshTokenHasher refreshTokenHasher,
         IEmailSender emailSender,
-        ILogger<AuthService> logger
+        ILogger<AuthService> logger,
+        IAuditLogService auditLogService
     )
     {
         _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
@@ -40,7 +43,22 @@ public class AuthService : IAuthService
         _refreshTokenHasher = refreshTokenHasher ?? throw new ArgumentNullException(nameof(refreshTokenHasher));
         _emailSender = emailSender ?? throw new ArgumentNullException(nameof(emailSender));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _auditLogService = auditLogService ?? throw new ArgumentNullException(nameof(auditLogService));
     }
+
+    /// <summary>Writes an audit entry without letting a failure affect the caller's result.</summary>
+    private async Task TryLogAuditAsync(Guid? userId, string action, string details, Guid? companyId = null)
+    {
+        try
+        {
+            await _auditLogService.LogActionAsync(userId, action, details, companyId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to write {Action} audit entry.", action);
+        }
+    }
+
     public async Task<(bool IsSuccess, string? ErrorMessage)> ChangePasswordAsync(Guid userId, ChangePasswordRequest request, CancellationToken cancellationToken = default)
     {
         var user = await _unitOfWork.Users.GetByIdAsync(userId, cancellationToken);
@@ -54,6 +72,8 @@ public class AuthService : IAuthService
         user.MustChangePassword = false;
         _unitOfWork.Users.Update(user);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        await TryLogAuditAsync(userId, "PASSWORD_CHANGED", "User changed their own password.", user.CompanyId);
 
         return (true, null);
     }
@@ -118,12 +138,21 @@ public class AuthService : IAuthService
             };
             await _unitOfWork.Users.AddAsync(user, cancellationToken);
 
+            foreach (var template in BuildDefaultTemplates(company.Id))
+            {
+                await _unitOfWork.DocumentTemplates.AddAsync(template, cancellationToken);
+            }
+
             var accessToken = _tokenGenerator.GenerateAccessToken(user.Id, user.Email, user.Role, company.Id);
             var refreshToken = _tokenGenerator.GenerateRefreshToken(user.Id);
             await StoreRefreshTokenAsync(user.Id, refreshToken, cancellationToken);
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             _logger.LogInformation("Company registration completed. CompanyId: {CompanyId}, UserId: {UserId}", company.Id, user.Id);
+
+            // No tenant context exists yet on this anonymous request - the company is
+            // being created in this very call - so the company id is passed explicitly.
+            await TryLogAuditAsync(user.Id, "COMPANY_REGISTERED", $"Company \"{company.Name}\" registered.", company.Id);
 
             var response = new RegisterCompanyResponse
             {
@@ -376,6 +405,7 @@ public class AuthService : IAuthService
                 return (false, MapOtpErrorCode(status), status);
 
             user!.PasswordHash = _passwordHasher.HashPassword(request.NewPassword);
+            user.MustChangePassword = false;
             _unitOfWork.Users.Update(user);
             _unitOfWork.PasswordResetOtps.Remove(record!);
 
@@ -389,6 +419,10 @@ public class AuthService : IAuthService
             }
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            // Anonymous flow - no tenant context on this request, so the company is
+            // passed explicitly.
+            await TryLogAuditAsync(user.Id, "PASSWORD_RESET", "User reset their password via the forgot-password flow.", user.CompanyId);
 
             _logger.LogInformation("Password reset via OTP completed for UserId: {UserId}", user.Id);
             return (true, null, AuthResultStatus.Success);
@@ -487,6 +521,53 @@ public class AuthService : IAuthService
     private static string GenerateOtp()
     {
         return System.Security.Cryptography.RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6");
+    }
+
+    /// <summary>
+    /// FIX-16: a freshly registered company otherwise has zero document templates, so
+    /// HR can't generate a single document until someone writes one from scratch. Seeds
+    /// one active template per document type the frontend's template editor already
+    /// offers (Contract, Warning_Letter, Termination_Letter), using the same
+    /// <c>{{placeholder}}</c> tokens the AI document-generation service already knows
+    /// how to fill.
+    /// </summary>
+    private static IEnumerable<DocumentTemplate> BuildDefaultTemplates(Guid companyId)
+    {
+        yield return new DocumentTemplate
+        {
+            Id = Guid.NewGuid(),
+            CompanyId = companyId,
+            DocumentType = "Contract",
+            Name = "Default Employment Contract",
+            ContentTemplate = "This Employment Contract is made on {{date}} between {{company_name}} and {{employee_name}}, " +
+                "who is hired as {{job_title}} in the {{department}} department under a {{contract_type}} contract, " +
+                "effective {{hire_date}}, with a monthly salary of {{salary}}.",
+            IsActive = true
+        };
+
+        yield return new DocumentTemplate
+        {
+            Id = Guid.NewGuid(),
+            CompanyId = companyId,
+            DocumentType = "Warning_Letter",
+            Name = "Default Warning Letter",
+            ContentTemplate = "Dear {{employee_name}},\n\nThis letter serves as a formal warning issued on {{date}} regarding your " +
+                "conduct as {{job_title}} in the {{department}} department at {{company_name}}. Please treat this matter with the " +
+                "seriousness it deserves.\n\nSincerely,\n{{company_name}} Management",
+            IsActive = true
+        };
+
+        yield return new DocumentTemplate
+        {
+            Id = Guid.NewGuid(),
+            CompanyId = companyId,
+            DocumentType = "Termination_Letter",
+            Name = "Default Termination Letter",
+            ContentTemplate = "Dear {{employee_name}},\n\nThis letter confirms the termination of your employment as {{job_title}} " +
+                "in the {{department}} department at {{company_name}}, effective {{date}}. Your last working day and final " +
+                "settlement details will be communicated separately.\n\nSincerely,\n{{company_name}} Management",
+            IsActive = true
+        };
     }
 
     /// <summary>

@@ -223,6 +223,44 @@ public class ErrorAndRateLimitTests : IClassFixture<CustomWebApplicationFactory>
             throw new Xunit.Sdk.XunitException("Missing 'status' property in rate limit response. Body: " + contentStr);
     }
 
+    [Fact]
+    public async Task RateLimit_Login_DifferentForwardedForIPs_GetIndependentBuckets()
+    {
+        // FIX-23: without ForwardedHeaders wired up, every anonymous caller behind the
+        // reverse proxy collapses into a single RemoteIpAddress bucket. This proves two
+        // distinct X-Forwarded-For values are honored as two distinct rate-limit buckets.
+        var client = _factory.CreateClient();
+        const string loginLimitExceededIp = "203.0.113.10";
+        const string otherClientIp = "203.0.113.20";
+
+        HttpResponseMessage? lastResponse = null;
+        for (int i = 0; i < 11; i++)
+        {
+            var req = new HttpRequestMessage(HttpMethod.Post, "/api/auth/login")
+            {
+                Content = JsonContent.Create(new { email = "nobody@test.local", password = "WrongPassword123!" })
+            };
+            req.Headers.Add("X-Test-RateLimit", "true");
+            req.Headers.Add("X-Forwarded-For", loginLimitExceededIp);
+            lastResponse = await client.SendAsync(req);
+            if (lastResponse.StatusCode == HttpStatusCode.TooManyRequests) break;
+        }
+
+        lastResponse.Should().NotBeNull();
+        lastResponse!.StatusCode.Should().Be(HttpStatusCode.TooManyRequests, "the login limit is 10/min and this IP just sent 11");
+
+        // A different forwarded IP must not be affected by the first IP's exhausted bucket.
+        var otherReq = new HttpRequestMessage(HttpMethod.Post, "/api/auth/login")
+        {
+            Content = JsonContent.Create(new { email = "nobody@test.local", password = "WrongPassword123!" })
+        };
+        otherReq.Headers.Add("X-Test-RateLimit", "true");
+        otherReq.Headers.Add("X-Forwarded-For", otherClientIp);
+        var otherResponse = await client.SendAsync(otherReq);
+
+        otherResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized, "a different client IP must get its own independent bucket, not the exhausted one");
+    }
+
     private static Task<HttpResponseMessage> SendAsync(HttpClient client, HttpMethod method, string url, string token, object? body = null)
     {
         var req = new HttpRequestMessage(method, url);

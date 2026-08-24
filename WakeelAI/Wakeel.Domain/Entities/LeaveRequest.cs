@@ -31,6 +31,7 @@ public class LeaveRequest
     public DateTime CreatedAt { get; set; }
     public DateTime? SubmittedAt { get; set; }
     public DateTime? ReviewedAt { get; set; }
+    public DateTime? CancelledAt { get; set; }
     
     // Navigation properties
     public EmployeeProfile Employee { get; set; } = null!;

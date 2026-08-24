@@ -5,6 +5,7 @@ using System.Threading;
 using Microsoft.Extensions.Logging;
 using System.Threading.Tasks;
 using Wakeel.Application.DTOs.LeaveRequests;
+using Wakeel.Application.Exceptions;
 using Wakeel.Application.Interfaces;
 using Wakeel.Application.Interfaces.Repositories;
 using Wakeel.Application.Interfaces.Services;
@@ -19,19 +20,22 @@ public class LeaveRequestService : ILeaveRequestService
     private readonly IEmailSender _emailSender;
     private readonly ILogger<LeaveRequestService> _logger;
     private readonly IAuditLogService _auditLogService;
+    private readonly ILeaveBalanceProvisioningService _leaveBalanceProvisioningService;
 
     public LeaveRequestService(
-        IUnitOfWork unitOfWork, 
-        IFileService fileService, 
-        IEmailSender emailSender, 
+        IUnitOfWork unitOfWork,
+        IFileService fileService,
+        IEmailSender emailSender,
         ILogger<LeaveRequestService> logger,
-        IAuditLogService auditLogService)
+        IAuditLogService auditLogService,
+        ILeaveBalanceProvisioningService leaveBalanceProvisioningService)
     {
         _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
         _fileService = fileService ?? throw new ArgumentNullException(nameof(fileService));
         _emailSender = emailSender ?? throw new ArgumentNullException(nameof(emailSender));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _auditLogService = auditLogService ?? throw new ArgumentNullException(nameof(auditLogService));
+        _leaveBalanceProvisioningService = leaveBalanceProvisioningService ?? throw new ArgumentNullException(nameof(leaveBalanceProvisioningService));
     }
 
     public async Task<LeaveRequestDto> CreateDraftAsync(Guid employeeId, Guid companyId, CreateLeaveRequestDto dto, (System.IO.Stream Stream, string FileName)? attachment, CancellationToken cancellationToken = default)
@@ -131,8 +135,10 @@ public class LeaveRequestService : ILeaveRequestService
         {
             query = query.Where(lr => lr.EmployeeId == employeeId.Value);
         }
-        else if (role == "HR_Manager")
+        else if (role == "HR_Manager" || role == "Company_Owner")
         {
+            // Company_Owner gets the same company-wide, non-draft view as HR - read-only,
+            // enforced at the controller (no Approve/Reject action is exposed to Owner).
             query = query.Where(lr => lr.Status != "Draft" && lr.Status != "Cancelled");
         }
         else
@@ -184,11 +190,11 @@ public class LeaveRequestService : ILeaveRequestService
         {
             throw new InvalidOperationException("leave_request_not_found");
         }
-        else if (role == "HR_Manager" && (request.Status == "Draft" || request.Status == "Cancelled"))
+        else if ((role == "HR_Manager" || role == "Company_Owner") && (request.Status == "Draft" || request.Status == "Cancelled"))
         {
             throw new InvalidOperationException("leave_request_not_found");
         }
-        else if (role != "Employee" && role != "HR_Manager")
+        else if (role != "Employee" && role != "HR_Manager" && role != "Company_Owner")
         {
             throw new UnauthorizedAccessException();
         }
@@ -233,13 +239,14 @@ public class LeaveRequestService : ILeaveRequestService
             throw new InvalidOperationException("leave_request_not_found");
         }
 
-        if (request.Status != "Draft")
+        if (request.Status != "Draft" && request.Status != "Pending")
         {
             throw new InvalidOperationException("not_a_draft");
         }
 
         request.Status = "Cancelled";
-        
+        request.CancelledAt = DateTime.UtcNow;
+
         _unitOfWork.LeaveRequests.Update(request);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
     }
@@ -261,18 +268,18 @@ public class LeaveRequestService : ILeaveRequestService
         if (dto.Status == "Approved")
         {
             var year = request.StartDate.Year;
-            var balance = await _unitOfWork.LeaveBalances.FirstOrDefaultAsync(lb => lb.EmployeeId == request.EmployeeId && lb.LeaveType == request.LeaveType && lb.Year == year, cancellationToken);
+            var balance = await _leaveBalanceProvisioningService.GetOrCreateAsync(request.EmployeeId, request.LeaveType, year, cancellationToken);
 
-            if (balance != null && balance.TotalDays.HasValue)
+            // The cap check only applies when a cap exists; the usage increment always
+            // runs. Nesting the increment inside the HasValue check (as this used to do)
+            // meant approving an uncapped type (Sick, Unpaid) never recorded any usage.
+            if (balance.TotalDays.HasValue && balance.TotalDays.Value - balance.UsedDays < request.DaysRequested)
             {
-                if (balance.TotalDays.Value - balance.UsedDays < request.DaysRequested)
-                {
-                    throw new InvalidOperationException("insufficient_leave_balance");
-                }
-                
-                balance.UsedDays += request.DaysRequested;
-                _unitOfWork.LeaveBalances.Update(balance);
+                throw new InvalidOperationException("insufficient_leave_balance");
             }
+
+            balance.UsedDays += request.DaysRequested;
+            _unitOfWork.LeaveBalances.Update(balance);
         }
         else if (dto.Status == "Rejected")
         {
@@ -280,6 +287,13 @@ public class LeaveRequestService : ILeaveRequestService
             {
                 throw new InvalidOperationException("validation_error");
             }
+        }
+
+        // Applies to both outcomes - a note is optional on approval (assigning only when
+        // present so an approval with no note never wipes one already on the request) and
+        // mandatory on rejection (enforced above).
+        if (!string.IsNullOrWhiteSpace(dto.HrNote))
+        {
             request.HrNote = dto.HrNote;
         }
 
@@ -355,33 +369,34 @@ public class LeaveRequestService : ILeaveRequestService
         CancellationToken cancellationToken)
     {
         // 1) Reject any request overlapping an existing active request (any leave type).
+        // A Draft is not a commitment - it must never block dates. Only Pending and
+        // Approved requests count, deliberately across leave types too (a person cannot
+        // be on two leaves at once).
         var overlapping = await _unitOfWork.LeaveRequests.FirstOrDefaultAsync(lr =>
             lr.EmployeeId == employeeId &&
-            (lr.Status == "Draft" || lr.Status == "Pending" || lr.Status == "Approved") &&
+            (lr.Status == "Pending" || lr.Status == "Approved") &&
             lr.StartDate <= endDate && lr.EndDate >= startDate,
             cancellationToken);
 
         if (overlapping != null)
-            throw new InvalidOperationException("overlapping_leave_request");
+            throw new OverlappingLeaveRequestException(overlapping.LeaveType, overlapping.StartDate, overlapping.EndDate, overlapping.Status);
 
-        // 2) Balance check that also reserves days held by Draft/Pending requests of the same
-        // type. Unpaid is included here too now that it carries a real (if often zero) cap.
+        // 2) Balance check that also reserves days held by Pending requests of the same
+        // type - a Draft reserves neither dates nor balance, for the same reason it
+        // cannot block an overlap above. A missing balance row is provisioned on the fly
+        // - it is not a user error, and Sick/Unpaid now carry no cap (null TotalDays) so
+        // the check below is skipped for them entirely.
         if (leaveType == "Annual" || leaveType == "Sick" || leaveType == "Unpaid")
         {
             var year = startDate.Year;
-            var balance = await _unitOfWork.LeaveBalances.FirstOrDefaultAsync(
-                lb => lb.EmployeeId == employeeId && lb.LeaveType == leaveType && lb.Year == year,
-                cancellationToken);
-
-            if (balance == null)
-                throw new InvalidOperationException("insufficient_leave_balance");
+            var balance = await _leaveBalanceProvisioningService.GetOrCreateAsync(employeeId, leaveType, year, cancellationToken);
 
             if (balance.TotalDays.HasValue)
             {
                 var activeRequests = await _unitOfWork.LeaveRequests.FindAsync(lr =>
                     lr.EmployeeId == employeeId &&
                     lr.LeaveType == leaveType &&
-                    (lr.Status == "Draft" || lr.Status == "Pending") &&
+                    lr.Status == "Pending" &&
                     lr.StartDate.Year == year,
                     cancellationToken);
 

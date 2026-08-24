@@ -39,6 +39,7 @@ public class DashboardEndpointTests : IClassFixture<CustomWebApplicationFactory>
         {
             var userIds = await db.Users.Where(u => u.CompanyId == companyId).Select(u => u.Id).ToListAsync();
 
+            db.AuditLogs.RemoveRange(db.AuditLogs.Where(a => a.CompanyId == companyId));
             db.GeneratedDocuments.RemoveRange(db.GeneratedDocuments.Where(gd => gd.CompanyId == companyId));
             db.DocumentTemplates.RemoveRange(db.DocumentTemplates.Where(dt => dt.CompanyId == companyId));
             db.LeaveRequests.RemoveRange(db.LeaveRequests.Where(lr => lr.CompanyId == companyId));

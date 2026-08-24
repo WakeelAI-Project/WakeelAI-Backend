@@ -110,8 +110,10 @@ public class DocumentsControllerTests
     public async Task FinalizeDocument_ReturnsNoContentResult()
     {
         var docId = Guid.NewGuid();
+        var hrUserId = Guid.NewGuid();
+        SetUser("HR_Manager", hrUserId);
 
-        _documentServiceMock.Setup(s => s.FinalizeDocumentAsync(docId)).Returns(Task.CompletedTask);
+        _documentServiceMock.Setup(s => s.FinalizeDocumentAsync(hrUserId, docId)).Returns(Task.CompletedTask);
 
         var result = await _controller.FinalizeDocument(docId);
 

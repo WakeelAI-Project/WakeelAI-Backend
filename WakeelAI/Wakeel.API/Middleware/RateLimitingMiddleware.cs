@@ -23,6 +23,13 @@ internal class RateLimitEntry
 /// - /api/documents/generate (POST) -> 10 req/min/user
 /// - everything else -> 100 req/min/user
 /// Responses: 429 with Retry-After header containing seconds to reset.
+///
+/// FIX-23: counters live in <see cref="IMemoryCache"/>, so they are per-process -
+/// they reset on every app restart/deploy and are not shared across instances. This
+/// is a documented decision, not an oversight: the deployment target is a single
+/// instance, so an in-memory limiter is correct here and a distributed store (e.g.
+/// Redis) would be unjustified complexity. If this service is ever scaled beyond one
+/// instance, replace this with a distributed counter (Redis or the database) first.
 /// </summary>
 public class RateLimitingMiddleware
 {
