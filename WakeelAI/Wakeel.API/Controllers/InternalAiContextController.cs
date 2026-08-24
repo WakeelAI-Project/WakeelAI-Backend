@@ -79,6 +79,13 @@ public class InternalAiContextController : ControllerBase
         var sickBalance = balances.FirstOrDefault(b => b.LeaveType == "Sick");
         var unpaidBalance = balances.FirstOrDefault(b => b.LeaveType == "Unpaid");
 
+        // Same reservation LeaveRequestService's own validation enforces - without netting
+        // it out here, the AI would tell the employee they have days a new request then
+        // gets rejected for lacking.
+        var reservedAnnual = await _leaveBalanceProvisioningService.GetReservedDaysAsync(userId, "Annual", currentYear, cancellationToken);
+        var reservedSick = await _leaveBalanceProvisioningService.GetReservedDaysAsync(userId, "Sick", currentYear, cancellationToken);
+        var reservedUnpaid = await _leaveBalanceProvisioningService.GetReservedDaysAsync(userId, "Unpaid", currentYear, cancellationToken);
+
         var response = new EmployeeContextResponse
         {
             UserId = userId.ToString(),
@@ -99,21 +106,24 @@ public class InternalAiContextController : ControllerBase
                 {
                     TotalDays = annualBalance.TotalDays ?? 0,
                     UsedDays = annualBalance.UsedDays,
-                    RemainingDays = (annualBalance.TotalDays ?? 0) - annualBalance.UsedDays,
+                    RemainingDays = (annualBalance.TotalDays ?? 0) - annualBalance.UsedDays - reservedAnnual,
+                    ReservedDays = reservedAnnual,
                     IsUncapped = false
                 } : null,
                 Sick = sickBalance != null ? new LeaveBalanceContextDto
                 {
                     TotalDays = sickBalance.TotalDays,
                     UsedDays = sickBalance.UsedDays,
-                    RemainingDays = sickBalance.TotalDays.HasValue ? sickBalance.TotalDays.Value - sickBalance.UsedDays : null,
+                    RemainingDays = sickBalance.TotalDays.HasValue ? sickBalance.TotalDays.Value - sickBalance.UsedDays - reservedSick : null,
+                    ReservedDays = reservedSick,
                     IsUncapped = !sickBalance.TotalDays.HasValue
                 } : null,
                 Unpaid = unpaidBalance != null ? new LeaveBalanceContextDto
                 {
                     TotalDays = unpaidBalance.TotalDays,
                     UsedDays = unpaidBalance.UsedDays,
-                    RemainingDays = unpaidBalance.TotalDays.HasValue ? unpaidBalance.TotalDays.Value - unpaidBalance.UsedDays : null,
+                    RemainingDays = unpaidBalance.TotalDays.HasValue ? unpaidBalance.TotalDays.Value - unpaidBalance.UsedDays - reservedUnpaid : null,
+                    ReservedDays = reservedUnpaid,
                     IsUncapped = !unpaidBalance.TotalDays.HasValue
                 } : null
             }

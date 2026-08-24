@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
@@ -447,6 +448,47 @@ public class EmployeeServiceTests
         result.LeaveBalance!.Annual.Should().BeEquivalentTo(new LeaveTypeBalance { TotalDays = 15, UsedDays = 2, RemainingDays = 13 });
         result.LeaveBalance.Sick.Should().BeEquivalentTo(new LeaveTypeBalance { TotalDays = 10, UsedDays = 0, RemainingDays = 10 });
         result.LeaveBalance.Unpaid.Should().BeEquivalentTo(new LeaveTypeBalance { TotalDays = null, UsedDays = 1, RemainingDays = null });
+    }
+
+    [Fact]
+    public async Task GetEmployeeAsync_WithPendingLeaveRequest_ShouldNetReservedDaysOutOfRemaining()
+    {
+        // The displayed balance used to omit days held by the employee's own Pending
+        // requests, so it could show more than LeaveRequestService's own validation
+        // would actually allow for a new request - confusing an employee who then got
+        // rejected for "insufficient balance" despite the UI saying they had days left.
+        var (profile, user) = CreateProfileAndUser();
+        var currentYear = DateTime.UtcNow.Year;
+
+        _employeeProfileRepositoryMock.Setup(r => r.GetByIdAsync(profile.UserId, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
+        _userRepositoryMock.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        var balances = new List<LeaveBalance>
+        {
+            new() { Id = Guid.NewGuid(), EmployeeId = profile.UserId, LeaveType = "Annual", TotalDays = 15, UsedDays = 2, Year = currentYear }
+        };
+        _leaveBalanceRepositoryMock
+            .Setup(r => r.FindAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveBalance, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(balances);
+
+        var pendingRequest = new LeaveRequest
+        {
+            EmployeeId = profile.UserId,
+            LeaveType = "Annual",
+            Status = "Pending",
+            DaysRequested = 4,
+            StartDate = new DateOnly(currentYear, 3, 1),
+            EndDate = new DateOnly(currentYear, 3, 4)
+        };
+        _leaveRequestRepositoryMock
+            .Setup(r => r.FindAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveRequest, bool>>>(), It.IsAny<CancellationToken>()))
+            .Returns<System.Linq.Expressions.Expression<Func<LeaveRequest, bool>>, CancellationToken>((predicate, _) =>
+                Task.FromResult<System.Collections.Generic.IReadOnlyList<LeaveRequest>>(
+                    new[] { pendingRequest }.Where(predicate.Compile()).ToList()));
+
+        var result = await _sut.GetEmployeeAsync(user.CompanyId, profile.UserId);
+
+        result!.LeaveBalance!.Annual.Should().BeEquivalentTo(new LeaveTypeBalance { TotalDays = 15, UsedDays = 2, RemainingDays = 9, ReservedDays = 4 });
     }
 
     [Fact]
