@@ -1,0 +1,76 @@
+name: Build, Publish and Deploy to Azure App Service
+
+# Manual only for now, deliberately separate from deploy.yaml (MonsterASP.NET) so this can
+# be tested independently without touching the live production deploy pipeline. Once the
+# Azure environment is confirmed working, this can be changed to trigger on push to develop
+# (either alongside or instead of deploy.yaml).
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # required for OIDC login to Azure (azure/login@v2)
+  contents: read
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ./WakeelAI
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore packages
+        run: dotnet restore WakeelAI.slnx
+
+      - name: Build
+        run: dotnet build WakeelAI.slnx --configuration Release --no-restore
+
+      - name: Run tests
+        run: dotnet test WakeelAI.slnx --configuration Release --no-build
+
+      - name: Publish API
+        run: |
+          dotnet publish ./Wakeel.API/Wakeel.API.csproj \
+            --configuration Release \
+            --no-build \
+            --output ../publish-azure
+
+      # Local dev upload files under wwwroot/uploads must never be published - they are not
+      # part of the app and Azure's read-only package mount aside, MonsterASP.NET's target
+      # doesn't ship them either. Keep the wwwroot directory itself so StaticFileMiddleware's
+      # own startup check (Program.cs) still finds it.
+      - name: Strip local upload artifacts from the publish output
+        run: rm -rf ../publish-azure/wwwroot/uploads
+
+      - name: Install EF Core tools
+        run: dotnet tool install --global dotnet-ef --version 10.0.10
+
+      - name: Apply database migrations
+        env:
+          ConnectionStrings__DefaultConnection: ${{ secrets.AZURE_SQL_CONNECTION_STRING }}
+          Jwt__SecretKey: ${{ secrets.JWT_SECRET_KEY }}
+          AiNode__InternalApiKey: ${{ secrets.AI_INTERNAL_API_KEY }}
+          Encryption__Key: ${{ secrets.ENCRYPTION_KEY }}
+        run: dotnet ef database update --project Wakeel.Infrastructure/Wakeel.Infrastructure.csproj --startup-project Wakeel.API/Wakeel.API.csproj
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy to Azure App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ secrets.AZURE_WEBAPP_NAME }}
+          package: ./publish-azure
