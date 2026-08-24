@@ -107,19 +107,26 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IDisp
     {
         if (disposing)
         {
-            var optionsBuilder = new DbContextOptionsBuilder<ApplicationDbContext>();
-            optionsBuilder.UseSqlServer(TestConnectionString);
+            try
+            {
+                var optionsBuilder = new DbContextOptionsBuilder<ApplicationDbContext>();
+                optionsBuilder.UseSqlServer(TestConnectionString);
 
-            var encryptionConfig = new ConfigurationBuilder()
-                .AddInMemoryCollection(new[] { new KeyValuePair<string, string?>("Encryption:Key", TestEncryptionKey) })
-                .Build();
+                var encryptionConfig = new ConfigurationBuilder()
+                    .AddInMemoryCollection(new[] { new KeyValuePair<string, string?>("Encryption:Key", TestEncryptionKey) })
+                    .Build();
 
-            using var dbContext = new ApplicationDbContext(
-                optionsBuilder.Options,
-                new DesignTimeCurrentTenantService(),
-                new FieldEncryptionService(encryptionConfig)
-            );
-            dbContext.Database.EnsureDeleted();
+                using var dbContext = new ApplicationDbContext(
+                    optionsBuilder.Options,
+                    new DesignTimeCurrentTenantService(),
+                    new FieldEncryptionService(encryptionConfig)
+                );
+                dbContext.Database.EnsureDeleted();
+            }
+            catch
+            {
+                // Best-effort cleanup during test teardown
+            }
         }
 
         base.Dispose(disposing);
