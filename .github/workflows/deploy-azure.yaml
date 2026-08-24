@@ -1,11 +1,14 @@
 name: Build, Publish and Deploy to Azure App Service
 
-# Manual only for now, deliberately separate from deploy.yaml (MonsterASP.NET) so this can
-# be tested independently without touching the live production deploy pipeline. Once the
-# Azure environment is confirmed working, this can be changed to trigger on push to develop
-# (either alongside or instead of deploy.yaml).
+# Verified working end-to-end (build/test/publish/migrate/OIDC login/deploy) via manual
+# workflow_dispatch runs before enabling this on push. Runs alongside deploy.yaml
+# (MonsterASP.NET), which is untouched and keeps deploying independently on its own trigger.
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - develop
+      - main
 
 permissions:
   id-token: write   # required for OIDC login to Azure (azure/login@v2)
