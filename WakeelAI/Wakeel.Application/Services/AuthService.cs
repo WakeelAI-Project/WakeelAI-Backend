@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
@@ -136,6 +137,11 @@ public class AuthService : IAuthService
                 CreatedAt = DateTime.UtcNow
             };
             await _unitOfWork.Users.AddAsync(user, cancellationToken);
+
+            foreach (var template in BuildDefaultTemplates(company.Id))
+            {
+                await _unitOfWork.DocumentTemplates.AddAsync(template, cancellationToken);
+            }
 
             var accessToken = _tokenGenerator.GenerateAccessToken(user.Id, user.Email, user.Role, company.Id);
             var refreshToken = _tokenGenerator.GenerateRefreshToken(user.Id);
@@ -515,6 +521,53 @@ public class AuthService : IAuthService
     private static string GenerateOtp()
     {
         return System.Security.Cryptography.RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6");
+    }
+
+    /// <summary>
+    /// FIX-16: a freshly registered company otherwise has zero document templates, so
+    /// HR can't generate a single document until someone writes one from scratch. Seeds
+    /// one active template per document type the frontend's template editor already
+    /// offers (Contract, Warning_Letter, Termination_Letter), using the same
+    /// <c>{{placeholder}}</c> tokens the AI document-generation service already knows
+    /// how to fill.
+    /// </summary>
+    private static IEnumerable<DocumentTemplate> BuildDefaultTemplates(Guid companyId)
+    {
+        yield return new DocumentTemplate
+        {
+            Id = Guid.NewGuid(),
+            CompanyId = companyId,
+            DocumentType = "Contract",
+            Name = "Default Employment Contract",
+            ContentTemplate = "This Employment Contract is made on {{date}} between {{company_name}} and {{employee_name}}, " +
+                "who is hired as {{job_title}} in the {{department}} department under a {{contract_type}} contract, " +
+                "effective {{hire_date}}, with a monthly salary of {{salary}}.",
+            IsActive = true
+        };
+
+        yield return new DocumentTemplate
+        {
+            Id = Guid.NewGuid(),
+            CompanyId = companyId,
+            DocumentType = "Warning_Letter",
+            Name = "Default Warning Letter",
+            ContentTemplate = "Dear {{employee_name}},\n\nThis letter serves as a formal warning issued on {{date}} regarding your " +
+                "conduct as {{job_title}} in the {{department}} department at {{company_name}}. Please treat this matter with the " +
+                "seriousness it deserves.\n\nSincerely,\n{{company_name}} Management",
+            IsActive = true
+        };
+
+        yield return new DocumentTemplate
+        {
+            Id = Guid.NewGuid(),
+            CompanyId = companyId,
+            DocumentType = "Termination_Letter",
+            Name = "Default Termination Letter",
+            ContentTemplate = "Dear {{employee_name}},\n\nThis letter confirms the termination of your employment as {{job_title}} " +
+                "in the {{department}} department at {{company_name}}, effective {{date}}. Your last working day and final " +
+                "settlement details will be communicated separately.\n\nSincerely,\n{{company_name}} Management",
+            IsActive = true
+        };
     }
 
     /// <summary>

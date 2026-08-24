@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
@@ -23,6 +24,7 @@ public class AuthServiceTests
     private readonly Mock<ICompanyRepository> _companyRepositoryMock = new();
     private readonly Mock<IRefreshTokenRepository> _refreshTokenRepositoryMock = new();
     private readonly Mock<IPasswordResetOtpRepository> _passwordResetOtpRepositoryMock = new();
+    private readonly Mock<IDocumentTemplateRepository> _documentTemplateRepositoryMock = new();
     private readonly Mock<IPasswordHasher> _passwordHasherMock = new();
     private readonly Mock<IJwtTokenGenerator> _tokenGeneratorMock = new();
     private readonly Mock<IRefreshTokenHasher> _refreshTokenHasherMock = new();
@@ -38,6 +40,7 @@ public class AuthServiceTests
         _unitOfWorkMock.Setup(u => u.Companies).Returns(_companyRepositoryMock.Object);
         _unitOfWorkMock.Setup(u => u.RefreshTokens).Returns(_refreshTokenRepositoryMock.Object);
         _unitOfWorkMock.Setup(u => u.PasswordResetOtps).Returns(_passwordResetOtpRepositoryMock.Object);
+        _unitOfWorkMock.Setup(u => u.DocumentTemplates).Returns(_documentTemplateRepositoryMock.Object);
 
         _tokenGeneratorMock.Setup(t => t.AccessTokenExpirationSeconds).Returns(900);
         _tokenGeneratorMock.Setup(t => t.RefreshTokenExpirationDays).Returns(7);
@@ -143,6 +146,46 @@ public class AuthServiceTests
         _userRepositoryMock.Verify(r => r.AddAsync(It.Is<User>(u => u.Role == UserRole.Company_Owner), It.IsAny<CancellationToken>()), Times.Once);
         _refreshTokenRepositoryMock.Verify(r => r.AddAsync(It.IsAny<RefreshToken>(), It.IsAny<CancellationToken>()), Times.Once);
         _unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.AtLeastOnce);
+    }
+
+    [Fact]
+    public async Task RegisterCompanyAsync_GivenValidRequest_SeedsOneActiveDefaultTemplatePerDocumentType()
+    {
+        // FIX-16: a freshly registered company must not start with zero templates,
+        // or HR has nothing to generate a document from until they write one.
+        var request = new RegisterCompanyRequest
+        {
+            CompanyName = "Test Corp",
+            TaxId = "123456789",
+            OwnerFullName = "Sara Ahmed",
+            OwnerEmail = "sara@test.com",
+            Password = "StrongPassword123!"
+        };
+
+        _userRepositoryMock
+            .Setup(r => r.EmailExistsAsync(request.OwnerEmail, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        Guid? seededCompanyId = null;
+        _companyRepositoryMock
+            .Setup(r => r.AddAsync(It.IsAny<Company>(), It.IsAny<CancellationToken>()))
+            .Callback<Company, CancellationToken>((c, _) => seededCompanyId = c.Id)
+            .Returns(Task.CompletedTask);
+
+        var seededTemplates = new List<DocumentTemplate>();
+        _documentTemplateRepositoryMock
+            .Setup(r => r.AddAsync(It.IsAny<DocumentTemplate>(), It.IsAny<CancellationToken>()))
+            .Callback<DocumentTemplate, CancellationToken>((t, _) => seededTemplates.Add(t))
+            .Returns(Task.CompletedTask);
+
+        var result = await _sut.RegisterCompanyAsync(request);
+
+        result.IsSuccess.Should().BeTrue();
+        seededTemplates.Should().HaveCount(3);
+        seededTemplates.Select(t => t.DocumentType).Should().BeEquivalentTo(new[] { "Contract", "Warning_Letter", "Termination_Letter" });
+        seededTemplates.Should().OnlyContain(t => t.IsActive);
+        seededTemplates.Should().OnlyContain(t => t.CompanyId == seededCompanyId);
+        seededTemplates.Should().OnlyContain(t => t.ContentTemplate.Contains("{{employee_name}}"));
     }
 
     // ------------------------------------------------------------
