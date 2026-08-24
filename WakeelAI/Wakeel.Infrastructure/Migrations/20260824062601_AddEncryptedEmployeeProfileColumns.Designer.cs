@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Wakeel.Infrastructure.Persistence;
 
@@ -11,9 +12,11 @@ using Wakeel.Infrastructure.Persistence;
 namespace Wakeel.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260824062601_AddEncryptedEmployeeProfileColumns")]
+    partial class AddEncryptedEmployeeProfileColumns
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -228,8 +231,13 @@ namespace Wakeel.Infrastructure.Migrations
                     b.Property<string>("NationalId")
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<string>("Salary")
-                        .IsRequired()
+                    b.Property<string>("NationalIdEnc")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<decimal>("Salary")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("SalaryEnc")
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("TimeZoneId")

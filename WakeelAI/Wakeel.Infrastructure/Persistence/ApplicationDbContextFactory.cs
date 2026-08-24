@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
 using Microsoft.Extensions.Configuration;
@@ -40,6 +41,26 @@ public class ApplicationDbContextFactory : IDesignTimeDbContextFactory<Applicati
         var optionsBuilder = new DbContextOptionsBuilder<ApplicationDbContext>();
         optionsBuilder.UseSqlServer(connectionString);
 
-        return new ApplicationDbContext(optionsBuilder.Options, new CurrentTenantService());
+        return new ApplicationDbContext(optionsBuilder.Options, new CurrentTenantService(), CreateDesignTimeFieldEncryptionService(configuration));
+    }
+
+    /// <summary>
+    /// FIX-26: `dotnet ef migrations add` only needs the EmployeeProfile converters to exist
+    /// with the right shape to scaffold the schema - it never actually encrypts or decrypts
+    /// real data. A local dev machine scaffolding a migration usually has no real
+    /// Encryption:Key configured, so this falls back to a throwaway random key instead of
+    /// failing the design-time build; the real key is still required and validated at
+    /// application startup (see Program.EnsureRequiredConfiguration).
+    /// </summary>
+    private static FieldEncryptionService CreateDesignTimeFieldEncryptionService(IConfiguration configuration)
+    {
+        try
+        {
+            return new FieldEncryptionService(FieldEncryptionService.ParseKey(configuration["Encryption:Key"]));
+        }
+        catch (InvalidOperationException)
+        {
+            return new FieldEncryptionService(RandomNumberGenerator.GetBytes(32));
+        }
     }
 }

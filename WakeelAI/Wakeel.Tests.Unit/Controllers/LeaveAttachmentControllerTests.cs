@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Wakeel.API.Controllers;
@@ -13,6 +14,7 @@ using Wakeel.Application.Interfaces;
 using Wakeel.Domain.Entities;
 using Wakeel.Domain.Enums;
 using Wakeel.Infrastructure.Persistence;
+using Wakeel.Infrastructure.Security;
 using Xunit;
 
 namespace Wakeel.Tests.Unit.Controllers;
@@ -45,9 +47,14 @@ public class LeaveAttachmentControllerTests
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
             .Options;
 
+        var encryptionConfig = new ConfigurationBuilder()
+            .AddInMemoryCollection(new[] { new KeyValuePair<string, string?>("Encryption:Key", Convert.ToBase64String(new byte[32])) })
+            .Build();
+
         _dbContext = new ApplicationDbContext(
             options,
-            _tenantServiceMock.Object);
+            _tenantServiceMock.Object,
+            new FieldEncryptionService(encryptionConfig));
 
         _controller = new LeaveAttachmentController(
             _fileServiceMock.Object,

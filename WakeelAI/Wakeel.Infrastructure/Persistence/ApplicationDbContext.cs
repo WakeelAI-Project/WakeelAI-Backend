@@ -1,17 +1,24 @@
 using Microsoft.EntityFrameworkCore;
 using Wakeel.Application.Interfaces;
 using Wakeel.Domain.Entities;
+using Wakeel.Infrastructure.Persistence.Configurations;
+using Wakeel.Infrastructure.Security;
 
 namespace Wakeel.Infrastructure.Persistence;
 
 public class ApplicationDbContext : DbContext
 {
     private readonly ICurrentTenantService _currentTenantService;
+    private readonly IFieldEncryptionService _fieldEncryptionService;
 
-    public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options, ICurrentTenantService currentTenantService)
+    public ApplicationDbContext(
+        DbContextOptions<ApplicationDbContext> options,
+        ICurrentTenantService currentTenantService,
+        IFieldEncryptionService fieldEncryptionService)
         : base(options)
     {
         _currentTenantService = currentTenantService ?? throw new System.ArgumentNullException(nameof(currentTenantService));
+        _fieldEncryptionService = fieldEncryptionService ?? throw new System.ArgumentNullException(nameof(fieldEncryptionService));
     }
 
     public DbSet<Company> Companies { get; set; } = null!;
@@ -34,8 +41,14 @@ public class ApplicationDbContext : DbContext
         base.OnModelCreating(modelBuilder);
 
         // This will automatically apply all IEntityTypeConfiguration<T> implementations
-        // from this assembly (CompanyConfiguration, UserConfiguration, etc.)
-        modelBuilder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
+        // from this assembly (CompanyConfiguration, UserConfiguration, etc.), except
+        // EmployeeProfileConfiguration - it needs IFieldEncryptionService injected (FIX-26),
+        // so it cannot be instantiated by the assembly scanner's parameterless constructor
+        // and is applied explicitly below instead.
+        modelBuilder.ApplyConfigurationsFromAssembly(
+            typeof(ApplicationDbContext).Assembly,
+            type => type != typeof(EmployeeProfileConfiguration));
+        modelBuilder.ApplyConfiguration(new EmployeeProfileConfiguration(_fieldEncryptionService));
 
         // Global tenant isolation filters. Inactive (no-op) when no tenant is resolved yet
         // (e.g. during /auth/login, /auth/register-company, /auth/refresh) — strict once

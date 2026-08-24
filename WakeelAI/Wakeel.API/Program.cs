@@ -103,6 +103,22 @@ public partial class Program
         // served. Never logs the values themselves - only the names of the missing keys.
         EnsureRequiredConfiguration(app.Configuration);
 
+        // FIX-26 data step: `dotnet run -- --backfill-employee-encryption` (or the published
+        // exe with the same flag) encrypts every EMPLOYEE_PROFILE row's plaintext
+        // NationalId/Salary into the *Enc columns, then exits without starting the web
+        // server. Deliberately a manual, explicit command rather than something that runs
+        // automatically at every startup - see
+        // Wakeel.Infrastructure.Services.IEmployeeProfileEncryptionBackfillService for why.
+        if (args.Contains("--backfill-employee-encryption"))
+        {
+            using var backfillScope = app.Services.CreateScope();
+            var backfillService = backfillScope.ServiceProvider
+                .GetRequiredService<Wakeel.Infrastructure.Services.IEmployeeProfileEncryptionBackfillService>();
+            var backfilledCount = backfillService.BackfillAsync().GetAwaiter().GetResult();
+            Console.WriteLine($"Employee profile encryption backfill complete: {backfilledCount} row(s) encrypted.");
+            return;
+        }
+
         // OpenAPI & Scalar
         // if (app.Environment.IsDevelopment())
         // {
@@ -185,7 +201,8 @@ public partial class Program
         [
             "ConnectionStrings:DefaultConnection",
             "Jwt:SecretKey",
-            "AiNode:InternalApiKey"
+            "AiNode:InternalApiKey",
+            "Encryption:Key"
         ];
 
         var missing = requiredKeys
@@ -198,6 +215,18 @@ public partial class Program
                 $"Required configuration is missing: {string.Join(", ", missing)}. " +
                 "Supply these via User Secrets (local development) or environment variables " +
                 "(deployment, e.g. Jwt__SecretKey). See appsettings.Example.json.");
+        }
+
+        // FIX-26: Encryption:Key must decode to exactly 32 bytes (AES-256), not merely be
+        // present - a malformed or wrong-length key would otherwise fail lazily, the first
+        // time an EmployeeProfile row is read or written, rather than at startup.
+        try
+        {
+            Wakeel.Infrastructure.Security.FieldEncryptionService.ParseKey(configuration["Encryption:Key"]);
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new InvalidOperationException($"Encryption:Key is invalid: {ex.Message}", ex);
         }
     }
 }

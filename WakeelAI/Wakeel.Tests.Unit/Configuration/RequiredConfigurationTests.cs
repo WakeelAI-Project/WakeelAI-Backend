@@ -29,7 +29,8 @@ public class RequiredConfigurationTests
     [
         ("ConnectionStrings:DefaultConnection", "Server=.;Database=x;Trusted_Connection=True;"),
         ("Jwt:SecretKey", "a-secret-key-that-is-at-least-32-characters"),
-        ("AiNode:InternalApiKey", "internal-key")
+        ("AiNode:InternalApiKey", "internal-key"),
+        ("Encryption:Key", Convert.ToBase64String(new byte[32]))
     ];
 
     [Fact]
@@ -46,6 +47,7 @@ public class RequiredConfigurationTests
     [InlineData("ConnectionStrings:DefaultConnection")]
     [InlineData("Jwt:SecretKey")]
     [InlineData("AiNode:InternalApiKey")]
+    [InlineData("Encryption:Key")]
     public void EnsureRequiredConfiguration_GivenMissingKey_ThrowsNamingTheKey(string missingKey)
     {
         var entries = new List<(string Key, string? Value)>(FullyPopulated());
@@ -83,6 +85,21 @@ public class RequiredConfigurationTests
         var message = act.Should().Throw<InvalidOperationException>().Which.Message;
         message.Should().NotContain("a-secret-key-that-is-at-least-32-characters");
         message.Should().NotContain("Trusted_Connection");
+    }
+
+    [Theory]
+    [InlineData("not-valid-base64!!!")]
+    [InlineData("dG9vc2hvcnQ=")] // valid base64, but far fewer than 32 bytes
+    public void EnsureRequiredConfiguration_GivenMalformedOrWrongLengthEncryptionKey_Throws(string badKey)
+    {
+        var entries = new List<(string Key, string? Value)>(FullyPopulated());
+        entries.RemoveAll(e => e.Key == "Encryption:Key");
+        entries.Add(("Encryption:Key", badKey));
+
+        var act = () => Program.EnsureRequiredConfiguration(BuildConfiguration(entries.ToArray()));
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*Encryption:Key*");
     }
 
     [Fact]

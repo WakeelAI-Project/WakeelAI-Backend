@@ -6,6 +6,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Wakeel.Infrastructure.Persistence;
 using Wakeel.Application.Interfaces;
+using Wakeel.Infrastructure.Security;
 using Wakeel.Infrastructure.Services;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -42,6 +43,9 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IDisp
             "https://allowed.integrationtest.local");
     }
 
+    /// <summary>Throwaway 32-byte AES key for tests only - not a secret, never used outside this test host.</summary>
+    private static readonly string TestEncryptionKey = Convert.ToBase64String(new byte[32]);
+
     private readonly string _testDatabaseName = $"WakeelTestDb_{Guid.NewGuid():N}";
     private string TestConnectionString
     {
@@ -75,7 +79,10 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IDisp
                 // appsettings.json intentionally ships with an empty Jwt:SecretKey (secrets are
                 // never committed), so the test host must supply its own signing key. Must be at
                 // least 32 characters for HMAC-SHA256.
-                new KeyValuePair<string, string?>("Jwt:SecretKey", "test-signing-key-for-integration-tests-only-32+chars")
+                new KeyValuePair<string, string?>("Jwt:SecretKey", "test-signing-key-for-integration-tests-only-32+chars"),
+                // FIX-26: EmployeeProfile's Salary/NationalId converters need a valid key at
+                // model-build time - appsettings.json ships with an empty placeholder.
+                new KeyValuePair<string, string?>("Encryption:Key", TestEncryptionKey)
             });
         });
 
@@ -103,9 +110,14 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IDisp
             var optionsBuilder = new DbContextOptionsBuilder<ApplicationDbContext>();
             optionsBuilder.UseSqlServer(TestConnectionString);
 
+            var encryptionConfig = new ConfigurationBuilder()
+                .AddInMemoryCollection(new[] { new KeyValuePair<string, string?>("Encryption:Key", TestEncryptionKey) })
+                .Build();
+
             using var dbContext = new ApplicationDbContext(
                 optionsBuilder.Options,
-                new DesignTimeCurrentTenantService()
+                new DesignTimeCurrentTenantService(),
+                new FieldEncryptionService(encryptionConfig)
             );
             dbContext.Database.EnsureDeleted();
         }

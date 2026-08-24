@@ -24,6 +24,13 @@ public static class InfrastructureServiceCollectionExtensions
         IConfiguration configuration
     )
     {
+        // FIX-26: registered before ApplicationDbContext because the context's
+        // OnModelCreating needs it (via constructor injection) to build the EmployeeProfile
+        // encryption converters. Stateless and thread-safe once constructed, so a singleton.
+        services.AddSingleton<IFieldEncryptionService, FieldEncryptionService>();
+        // FIX-26 data step - see IEmployeeProfileEncryptionBackfillService for when to run it.
+        services.AddScoped<IEmployeeProfileEncryptionBackfillService, EmployeeProfileEncryptionBackfillService>();
+
         services.AddDbContext<ApplicationDbContext>(options =>
             options.UseSqlServer(configuration.GetConnectionString("DefaultConnection")));
 

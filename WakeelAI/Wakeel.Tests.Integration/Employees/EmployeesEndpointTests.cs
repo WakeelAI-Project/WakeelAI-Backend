@@ -101,6 +101,65 @@ public class EmployeesEndpointTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
+    public async Task Create_NationalIdAndSalary_AreEncryptedAtRestButDecryptedThroughTheApi()
+    {
+        // FIX-26: EMPLOYEE_PROFILE.NationalId/Salary must never be readable as plaintext by
+        // anyone with a raw DB connection, while every normal read path (this API) keeps
+        // seeing the real value transparently.
+        var (hrToken, _, departmentId) = await SeedCompanyWithHrAsync();
+        const string plaintextNationalId = "29912345678901";
+        const decimal plaintextSalary = 15750.50m;
+
+        var createResponse = await SendAsync(HttpMethod.Post, "/api/employees", hrToken, new
+        {
+            full_name = "Encrypted Fields Employee",
+            email = $"emp_{Guid.NewGuid():N}@integrationtest.local",
+            job_title = "Analyst",
+            department_id = departmentId,
+            hire_date = "2026-01-01",
+            salary = plaintextSalary,
+            contract_type = "Full-Time",
+            national_id = plaintextNationalId
+        });
+        createResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+        var createBody = await createResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var recordId = createBody.GetProperty("record_id").GetGuid();
+
+        // Read the raw column values directly - bypassing the EF Core encryption converters
+        // entirely - to prove what is actually stored on disk.
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var connection = db.Database.GetDbConnection();
+            await connection.OpenAsync();
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT Salary, NationalId FROM EMPLOYEE_PROFILE WHERE UserId = @userId";
+            var parameter = command.CreateParameter();
+            parameter.ParameterName = "@userId";
+            parameter.Value = recordId;
+            command.Parameters.Add(parameter);
+
+            using var reader = await command.ExecuteReaderAsync();
+            (await reader.ReadAsync()).Should().BeTrue();
+            var rawSalary = reader.GetString(0);
+            var rawNationalId = reader.GetString(1);
+
+            rawSalary.Should().StartWith("v1:", "the column must hold ciphertext, not a plain decimal");
+            rawSalary.Should().NotContain(plaintextSalary.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            rawNationalId.Should().StartWith("v1:", "the column must hold ciphertext, not the plaintext national ID");
+            rawNationalId.Should().NotContain(plaintextNationalId);
+        }
+
+        // Read it back through the normal API path - it must come back as the exact
+        // original plaintext, decrypted transparently.
+        var getResponse = await SendAsync(HttpMethod.Get, $"/api/employees/{recordId}", hrToken);
+        getResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var getBody = await getResponse.Content.ReadFromJsonAsync<JsonElement>();
+        getBody.GetProperty("national_id").GetString().Should().Be(plaintextNationalId);
+        getBody.GetProperty("salary").GetDecimal().Should().Be(plaintextSalary);
+    }
+
+    [Fact]
     public async Task Create_GivenDuplicateEmail_ShouldReturn409()
     {
         var (hrToken, _, departmentId) = await SeedCompanyWithHrAsync();
