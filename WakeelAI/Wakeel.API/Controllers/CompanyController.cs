@@ -137,6 +137,36 @@ public class CompanyController : ControllerBase
     /// <param name="title">A human-readable title for the handbook.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation.</param>
     /// <returns>201 Created with handbook_id, title, file_url, and uploaded_at.</returns>
+    [Authorize(Roles = "Company_Owner,HR_Manager")]
+    [HttpGet("policy")]
+    public async Task<IActionResult> GetActivePolicy(CancellationToken cancellationToken)
+    {
+        var companyIdClaim = User.FindFirst("company_id")?.Value;
+        if (!Guid.TryParse(companyIdClaim, out var companyId))
+            return Forbid();
+
+        var handbook = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.FirstOrDefaultAsync(
+            _dbContext.CompanyHandbooks
+                .Where(h => h.CompanyId == companyId)
+                .OrderByDescending(h => h.UploadedAt),
+            cancellationToken);
+
+        if (handbook == null)
+            return Ok(new { has_policy = false, policy = (object?)null });
+
+        return Ok(new
+        {
+            has_policy = true,
+            policy = new
+            {
+                handbook_id = handbook.Id,
+                title = handbook.Title,
+                file_url = handbook.FileUrl,
+                uploaded_at = handbook.UploadedAt
+            }
+        });
+    }
+
     [Authorize(Roles = "Company_Owner")]
     [HttpPost("policies")]
     [ProducesResponseType(StatusCodes.Status201Created)]
@@ -186,6 +216,16 @@ public class CompanyController : ControllerBase
                 textBuilder.AppendLine(page.Text);
             }
             extractedText = textBuilder.ToString().Trim();
+        }
+
+        // Enforce single active policy per company: remove any prior handbook records
+        var existingHandbooks = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToListAsync(
+            _dbContext.CompanyHandbooks.Where(h => h.CompanyId == companyId),
+            cancellationToken);
+
+        if (existingHandbooks.Any())
+        {
+            _dbContext.CompanyHandbooks.RemoveRange(existingHandbooks);
         }
 
         // -------- Persist handbook record --------

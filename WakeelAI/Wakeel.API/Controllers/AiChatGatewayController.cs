@@ -94,6 +94,21 @@ public class AiChatGatewayController : ControllerBase
             "Chat ask: UserId={UserId}, CompanyId={CompanyId}, ConversationId={ConversationId}",
             userId, companyId, conversationId);
 
+        string? targetEmployeeId = request.TargetEmployeeId;
+        string? targetEmployeeName = request.TargetEmployeeName;
+
+        if (string.IsNullOrWhiteSpace(targetEmployeeId) && request.FieldValues is JsonElement jsonElem && jsonElem.ValueKind == JsonValueKind.Object)
+        {
+            if (jsonElem.TryGetProperty("targetEmployeeId", out var tid) || jsonElem.TryGetProperty("target_employee_id", out tid))
+            {
+                targetEmployeeId = tid.GetString();
+            }
+            if (jsonElem.TryGetProperty("targetEmployeeName", out var tname) || jsonElem.TryGetProperty("target_employee_name", out tname))
+            {
+                targetEmployeeName = tname.GetString();
+            }
+        }
+
         // -------- Build Node.js payload (API Doc v8 contract) --------
         // Identity fields are wrapped inside a context object per the updated AI service contract.
         var nodePayload = new
@@ -106,7 +121,9 @@ public class AiChatGatewayController : ControllerBase
                 userId         = userId.ToString(),
                 companyId      = companyId.ToString(),
                 role           = role,
-                conversationId = conversationId
+                conversationId = conversationId,
+                targetEmployeeId = targetEmployeeId,
+                targetEmployeeName = targetEmployeeName
             }
         };
 
