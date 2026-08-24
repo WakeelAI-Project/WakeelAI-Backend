@@ -12,7 +12,7 @@ namespace Wakeel.API.Controllers;
 [Route("api/account")]
 public class AccountController(IAuthService authService) : ControllerBase
 {
-    [Authorize(Roles = "HR_Manager,Employee")]
+    [Authorize(Roles = "HR_Manager,Employee, Company_Owner")]
     [HttpPost("change-password")]
     public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request, CancellationToken cancellationToken)
     {
