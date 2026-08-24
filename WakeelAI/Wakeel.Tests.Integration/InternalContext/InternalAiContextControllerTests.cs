@@ -270,6 +270,18 @@ public class InternalAiContextControllerTests : IClassFixture<CustomWebApplicati
     // -------- GET /api/ai/employees/search (FIX-17) --------
 
     [Fact]
+    public async Task SearchEmployees_MissingPsk_Returns401()
+    {
+        var (_, companyId) = await SeedEmployeeAsync();
+        var client = _factory.CreateClient();
+        var request = BuildInternalRequest("/api/ai/employees/search?name=Test", null, Guid.NewGuid().ToString(), companyId.ToString(), "HR_Manager");
+
+        var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
     public async Task SearchEmployees_NonHrRole_Returns403()
     {
         var (_, companyId) = await SeedEmployeeAsync();

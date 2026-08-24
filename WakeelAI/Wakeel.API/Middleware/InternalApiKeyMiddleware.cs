@@ -47,15 +47,12 @@ public class InternalApiKeyMiddleware
     {
         var p = path.Value ?? string.Empty;
 
-        // Explicitly intercept only INCOMING endpoints from Node.js -> .NET
-        if (p.StartsWith("/api/ai/employee-context", StringComparison.OrdinalIgnoreCase)) return true;
-        if (p.StartsWith("/api/ai/company-context", StringComparison.OrdinalIgnoreCase)) return true;
-        if (p.StartsWith("/api/ai/templates/active", StringComparison.OrdinalIgnoreCase)) return true;
-        if (p.StartsWith("/api/ai/documents/save", StringComparison.OrdinalIgnoreCase)) return true;
-        if (p.StartsWith("/api/ai/leave-requests", StringComparison.OrdinalIgnoreCase)) return true;
-
         // Do NOT intercept /api/ai/chat or /api/knowledge/ingest
         // because those are either public frontend requests or outbound from .NET
+        if (p.StartsWith("/api/ai/chat", StringComparison.OrdinalIgnoreCase)) return false;
+
+        // Explicitly intercept all INCOMING M2M endpoints under /api/ai/
+        if (p.StartsWith("/api/ai/", StringComparison.OrdinalIgnoreCase)) return true;
 
         return false;
     }
