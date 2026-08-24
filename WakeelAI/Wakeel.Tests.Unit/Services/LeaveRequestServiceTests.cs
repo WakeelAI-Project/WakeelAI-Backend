@@ -412,4 +412,81 @@ public class LeaveRequestServiceTests
 
         result.HrNote.Should().Be("Earlier note from a prior touch");
     }
+
+    [Fact]
+    public async Task CancelDraftAsync_PendingRequest_CancelsIt()
+    {
+        // FIX-15: an employee can withdraw a request they already submitted, not just
+        // a not-yet-submitted Draft.
+        var unitOfWorkMock = new Mock<IUnitOfWork>();
+        var fileServiceMock = new Mock<IFileService>();
+        var emailSenderMock = new Mock<IEmailSender>();
+        var loggerMock = new Mock<ILogger<LeaveRequestService>>();
+        var auditLogServiceMock = new Mock<IAuditLogService>();
+
+        var employeeId = Guid.NewGuid();
+        var companyId = Guid.NewGuid();
+        var requestId = Guid.NewGuid();
+
+        var request = new LeaveRequest
+        {
+            Id = requestId,
+            CompanyId = companyId,
+            EmployeeId = employeeId,
+            Status = "Pending",
+            LeaveType = "Annual",
+            StartDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(1)),
+            EndDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(2)),
+            DaysRequested = 2
+        };
+
+        unitOfWorkMock.Setup(u => u.LeaveRequests.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveRequest, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(request);
+
+        var leaveBalanceProvisioningService = new LeaveBalanceProvisioningService(unitOfWorkMock.Object);
+        var service = new LeaveRequestService(unitOfWorkMock.Object, fileServiceMock.Object, emailSenderMock.Object, loggerMock.Object, auditLogServiceMock.Object, leaveBalanceProvisioningService);
+
+        await service.CancelDraftAsync(requestId, employeeId, companyId);
+
+        request.Status.Should().Be("Cancelled");
+        request.CancelledAt.Should().NotBeNull();
+        unitOfWorkMock.Verify(u => u.LeaveRequests.Update(It.Is<LeaveRequest>(r => r.Status == "Cancelled")), Times.Once);
+        unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task CancelDraftAsync_ApprovedRequest_ThrowsNotADraft()
+    {
+        var unitOfWorkMock = new Mock<IUnitOfWork>();
+        var fileServiceMock = new Mock<IFileService>();
+        var emailSenderMock = new Mock<IEmailSender>();
+        var loggerMock = new Mock<ILogger<LeaveRequestService>>();
+        var auditLogServiceMock = new Mock<IAuditLogService>();
+
+        var employeeId = Guid.NewGuid();
+        var companyId = Guid.NewGuid();
+        var requestId = Guid.NewGuid();
+
+        var request = new LeaveRequest
+        {
+            Id = requestId,
+            CompanyId = companyId,
+            EmployeeId = employeeId,
+            Status = "Approved",
+            LeaveType = "Annual",
+            StartDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(1)),
+            EndDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(2)),
+            DaysRequested = 2
+        };
+
+        unitOfWorkMock.Setup(u => u.LeaveRequests.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveRequest, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(request);
+
+        var leaveBalanceProvisioningService = new LeaveBalanceProvisioningService(unitOfWorkMock.Object);
+        var service = new LeaveRequestService(unitOfWorkMock.Object, fileServiceMock.Object, emailSenderMock.Object, loggerMock.Object, auditLogServiceMock.Object, leaveBalanceProvisioningService);
+
+        var act = async () => await service.CancelDraftAsync(requestId, employeeId, companyId);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("not_a_draft");
+    }
 }

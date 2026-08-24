@@ -239,7 +239,7 @@ public class LeaveRequestService : ILeaveRequestService
             throw new InvalidOperationException("leave_request_not_found");
         }
 
-        if (request.Status != "Draft")
+        if (request.Status != "Draft" && request.Status != "Pending")
         {
             throw new InvalidOperationException("not_a_draft");
         }
