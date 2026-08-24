@@ -6,6 +6,11 @@ obj/
 *repomix*
 **/wwwroot/uploads/
 
+# dotnet publish output / zip-deploy packages (produced locally or by CI, never committed)
+publish/
+publish-azure/
+*.zip
+
 # Local configuration and secrets - NEVER commit these.
 # appsettings.json ships with empty placeholders; real values live in
 # User Secrets (local dev) or environment variables (deployment).
