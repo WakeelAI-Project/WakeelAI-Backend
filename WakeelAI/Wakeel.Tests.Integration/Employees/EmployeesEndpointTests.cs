@@ -552,6 +552,70 @@ public class EmployeesEndpointTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     // ------------------------------------------------------------
+    // ExportPersonalData (FIX-25)
+    // ------------------------------------------------------------
+
+    [Fact]
+    public async Task ExportPersonalData_GivenHrCaller_ShouldReturn200WithFullBundle()
+    {
+        var (hrToken, _, departmentId) = await SeedCompanyWithHrAsync();
+        var recordId = await CreateEmployeeAsync(hrToken, departmentId);
+
+        var response = await SendAsync(HttpMethod.Get, $"/api/employees/{recordId}/personal-data-export", hrToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("user").GetProperty("full_name").GetString().Should().Be("Seeded Employee");
+        body.GetProperty("profile").GetProperty("job_title").GetString().Should().Be("Analyst");
+        body.GetProperty("leave_balances").GetArrayLength().Should().Be(3);
+    }
+
+    [Fact]
+    public async Task ExportPersonalData_GivenTheEmployeeThemselves_ShouldReturn200()
+    {
+        var (hrToken, _, departmentId) = await SeedCompanyWithHrAsync();
+        var recordId = await CreateEmployeeAsync(hrToken, departmentId);
+        var employeeToken = await LoginAsEmployeeAsync(recordId);
+
+        var response = await SendAsync(HttpMethod.Get, $"/api/employees/{recordId}/personal-data-export", employeeToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task ExportPersonalData_GivenAnotherEmployee_ShouldReturn403()
+    {
+        var (hrToken, _, departmentId) = await SeedCompanyWithHrAsync();
+        var recordId = await CreateEmployeeAsync(hrToken, departmentId);
+        var otherRecordId = await CreateEmployeeAsync(hrToken, departmentId);
+        var otherEmployeeToken = await LoginAsEmployeeAsync(otherRecordId);
+
+        var response = await SendAsync(HttpMethod.Get, $"/api/employees/{recordId}/personal-data-export", otherEmployeeToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task ExportPersonalData_GivenAnotherCompanysHr_ShouldReturn404()
+    {
+        var (hrTokenA, _, departmentIdA) = await SeedCompanyWithHrAsync();
+        var (hrTokenB, _, _) = await SeedCompanyWithHrAsync();
+        var recordIdA = await CreateEmployeeAsync(hrTokenA, departmentIdA);
+
+        var response = await SendAsync(HttpMethod.Get, $"/api/employees/{recordIdA}/personal-data-export", hrTokenB);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task ExportPersonalData_GivenNoToken_ShouldReturn401()
+    {
+        var response = await _client.GetAsync($"/api/employees/{Guid.NewGuid()}/personal-data-export");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    // ------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------
 

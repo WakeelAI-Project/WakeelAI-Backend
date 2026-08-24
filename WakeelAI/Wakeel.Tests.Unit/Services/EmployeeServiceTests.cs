@@ -24,6 +24,7 @@ public class EmployeeServiceTests
     private readonly Mock<ILeaveRequestRepository> _leaveRequestRepositoryMock = new();
     private readonly Mock<IDepartmentRepository> _departmentRepositoryMock = new();
     private readonly Mock<ILeaveEntitlementRepository> _leaveEntitlementRepositoryMock = new();
+    private readonly Mock<IGeneratedDocumentRepository> _generatedDocumentRepositoryMock = new();
     private readonly Mock<IPasswordHasher> _passwordHasherMock = new();
     private readonly Mock<ILogger<EmployeeService>> _loggerMock = new();
     private readonly Mock<IEmailSender> _emailSenderMock = new();
@@ -41,6 +42,7 @@ public class EmployeeServiceTests
         _unitOfWorkMock.Setup(u => u.LeaveRequests).Returns(_leaveRequestRepositoryMock.Object);
         _unitOfWorkMock.Setup(u => u.Departments).Returns(_departmentRepositoryMock.Object);
         _unitOfWorkMock.Setup(u => u.LeaveEntitlements).Returns(_leaveEntitlementRepositoryMock.Object);
+        _unitOfWorkMock.Setup(u => u.GeneratedDocuments).Returns(_generatedDocumentRepositoryMock.Object);
 
         // Real seeded entitlement rows (mirrors LeaveEntitlementConfiguration) so the real
         // LeaveBalanceProvisioningService below computes genuine tiered values, not stubs.
@@ -64,6 +66,12 @@ public class EmployeeServiceTests
         _leaveRequestRepositoryMock
             .Setup(r => r.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveRequest, bool>>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((LeaveRequest?)null);
+        _leaveRequestRepositoryMock
+            .Setup(r => r.FindAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveRequest, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<LeaveRequest>());
+        _generatedDocumentRepositoryMock
+            .Setup(r => r.FindAsync(It.IsAny<System.Linq.Expressions.Expression<Func<GeneratedDocument, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<GeneratedDocument>());
 
         _passwordHasherMock
             .Setup(h => h.HashPassword(It.IsAny<string>()))
@@ -1057,6 +1065,68 @@ public class EmployeeServiceTests
         result.Should().BeTrue();
         _unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
         _userRepositoryMock.Verify(r => r.Update(It.IsAny<User>()), Times.Never);
+    }
+
+    // ------------------------------------------------------------
+    // ExportPersonalDataAsync (FIX-25)
+    // ------------------------------------------------------------
+
+    [Fact]
+    public async Task ExportPersonalDataAsync_GivenUnknownRecordId_ShouldReturnNull()
+    {
+        var result = await _sut.ExportPersonalDataAsync(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ExportPersonalDataAsync_GivenRecordFromAnotherCompany_ShouldReturnNull()
+    {
+        var (profile, user) = CreateProfileAndUser();
+        _employeeProfileRepositoryMock.Setup(r => r.GetByIdAsync(profile.UserId, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
+        _userRepositoryMock.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        var result = await _sut.ExportPersonalDataAsync(Guid.NewGuid(), Guid.NewGuid(), profile.UserId);
+
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ExportPersonalDataAsync_GivenValidRecord_ReturnsFullBundleAndWritesAuditEntry()
+    {
+        var (profile, user) = CreateProfileAndUser();
+        _employeeProfileRepositoryMock.Setup(r => r.GetByIdAsync(profile.UserId, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
+        _userRepositoryMock.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _departmentRepositoryMock
+            .Setup(r => r.GetByIdAsync(profile.DepartmentId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Department { Id = profile.DepartmentId, CompanyId = user.CompanyId, Name = "Engineering" });
+
+        var balance = new LeaveBalance { EmployeeId = profile.UserId, LeaveType = "Annual", Year = 2026, TotalDays = 21, UsedDays = 3 };
+        _leaveBalanceRepositoryMock
+            .Setup(r => r.FindAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveBalance, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<LeaveBalance> { balance });
+
+        var leaveRequest = new LeaveRequest { Id = Guid.NewGuid(), EmployeeId = profile.UserId, LeaveType = "Annual", Status = "Approved", CreatedAt = DateTime.UtcNow };
+        _leaveRequestRepositoryMock
+            .Setup(r => r.FindAsync(It.IsAny<System.Linq.Expressions.Expression<Func<LeaveRequest, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<LeaveRequest> { leaveRequest });
+
+        var document = new GeneratedDocument { Id = Guid.NewGuid(), EmployeeId = profile.UserId, DocumentType = "Contract", Title = "Employment Contract", Status = "Final", CreatedAt = DateTime.UtcNow };
+        _generatedDocumentRepositoryMock
+            .Setup(r => r.FindAsync(It.IsAny<System.Linq.Expressions.Expression<Func<GeneratedDocument, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<GeneratedDocument> { document });
+
+        var actorUserId = Guid.NewGuid();
+        var result = await _sut.ExportPersonalDataAsync(user.CompanyId, actorUserId, profile.UserId);
+
+        result.Should().NotBeNull();
+        result!.User.FullName.Should().Be(user.FullName);
+        result.Profile.Department.Should().Be("Engineering");
+        result.LeaveBalances.Should().ContainSingle(b => b.LeaveType == "Annual" && b.TotalDays == 21);
+        result.LeaveRequests.Should().ContainSingle(r => r.RequestId == leaveRequest.Id);
+        result.GeneratedDocuments.Should().ContainSingle(d => d.DocumentId == document.Id);
+
+        _auditLogServiceMock.Verify(a => a.LogActionAsync(actorUserId, "PERSONAL_DATA_EXPORTED", It.IsAny<string>()), Times.Once);
     }
 
     private static (EmployeeProfile Profile, User User) CreateProfileAndUser()

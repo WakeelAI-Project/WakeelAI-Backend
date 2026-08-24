@@ -51,6 +51,15 @@ public class DailyMaintenanceBackgroundService : BackgroundService
 
     private async Task RunOnceAsync(CancellationToken stoppingToken)
     {
+        // Each job gets its own scope and its own try/catch so a failure in one never
+        // skips the other - abandoned-draft cleanup and the retention purge are
+        // unrelated concerns that happen to share this one timer loop.
+        await RunAbandonedDraftCleanupAsync(stoppingToken);
+        await RunDataRetentionPurgeAsync(stoppingToken);
+    }
+
+    private async Task RunAbandonedDraftCleanupAsync(CancellationToken stoppingToken)
+    {
         try
         {
             using var scope = _scopeFactory.CreateScope();
@@ -65,7 +74,33 @@ public class DailyMaintenanceBackgroundService : BackgroundService
         catch (Exception ex)
         {
             // A failed run must never crash the host - it just tries again next interval.
-            _logger.LogError(ex, "Daily maintenance run failed.");
+            _logger.LogError(ex, "Abandoned draft cleanup run failed.");
+        }
+    }
+
+    /// <summary>FIX-25: purges audit logs and generated documents past their retention window.</summary>
+    private async Task RunDataRetentionPurgeAsync(CancellationToken stoppingToken)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var retentionService = scope.ServiceProvider.GetRequiredService<IDataRetentionService>();
+
+            var auditLogRetentionDays = _configuration.GetValue<int?>("DataRetention:AuditLogRetentionDays") ?? 365;
+            var generatedDocumentRetentionDays = _configuration.GetValue<int?>("DataRetention:GeneratedDocumentRetentionDays") ?? 730;
+
+            var result = await retentionService.PurgeExpiredRecordsAsync(
+                auditLogRetentionDays, generatedDocumentRetentionDays, stoppingToken);
+
+            // Count only - never per-row personal data.
+            _logger.LogInformation(
+                "Data retention purge: removed {AuditLogCount} audit log(s) older than {AuditLogRetentionDays} day(s) and {DocumentCount} generated document(s) older than {DocumentRetentionDays} day(s).",
+                result.AuditLogsPurged, auditLogRetentionDays, result.GeneratedDocumentsPurged, generatedDocumentRetentionDays);
+        }
+        catch (Exception ex)
+        {
+            // A failed run must never crash the host - it just tries again next interval.
+            _logger.LogError(ex, "Data retention purge run failed.");
         }
     }
 }

@@ -415,6 +415,94 @@ public class EmployeeService : IEmployeeService
         return true;
     }
 
+    /// <summary>
+    /// FIX-25: a data subject's own personal-data bundle. Authorization (HR_Manager or
+    /// the employee themselves) is enforced by the controller; this method only enforces
+    /// the multi-tenant scope, exactly like <see cref="GetEmployeeAsync"/>.
+    /// </summary>
+    public async Task<PersonalDataExportResponse?> ExportPersonalDataAsync(Guid companyId, Guid actorUserId, Guid recordId, CancellationToken cancellationToken = default)
+    {
+        var profile = await _resourceLoader.GetEmployeeProfileAsync(recordId, cancellationToken);
+        if (profile is null)
+            return null;
+
+        var user = await _resourceLoader.GetUserAsync(profile.UserId, cancellationToken);
+        if (user is null || user.CompanyId != companyId)
+            return null;
+
+        var department = await _unitOfWork.Departments.GetByIdAsync(profile.DepartmentId, cancellationToken);
+
+        var balances = await _unitOfWork.LeaveBalances.FindAsync(
+            lb => lb.EmployeeId == recordId, cancellationToken);
+
+        var leaveRequests = await _unitOfWork.LeaveRequests.FindAsync(
+            lr => lr.EmployeeId == recordId, cancellationToken);
+
+        var documents = await _unitOfWork.GeneratedDocuments.FindAsync(
+            d => d.EmployeeId == recordId, cancellationToken);
+
+        var export = new PersonalDataExportResponse
+        {
+            ExportedAt = DateTime.UtcNow,
+            User = new PersonalDataExportUser
+            {
+                UserId = user.Id,
+                FullName = user.FullName,
+                Email = user.Email,
+                Phone = user.Phone,
+                Role = user.Role.ToString(),
+                EmploymentStatus = GetEmploymentStatus(user.IsActive),
+                CreatedAt = user.CreatedAt
+            },
+            Profile = new PersonalDataExportProfile
+            {
+                JobTitle = profile.JobTitle,
+                Department = department?.Name,
+                NationalId = profile.NationalId,
+                HireDate = profile.HireDate,
+                Salary = profile.Salary,
+                ContractType = profile.ContractType,
+                TimeZoneId = profile.TimeZoneId
+            },
+            LeaveBalances = balances
+                .OrderByDescending(b => b.Year).ThenBy(b => b.LeaveType)
+                .Select(b => new PersonalDataExportLeaveBalance
+                {
+                    LeaveType = b.LeaveType,
+                    Year = b.Year,
+                    TotalDays = b.TotalDays,
+                    UsedDays = b.UsedDays
+                }).ToList(),
+            LeaveRequests = leaveRequests
+                .OrderByDescending(r => r.CreatedAt)
+                .Select(r => new PersonalDataExportLeaveRequest
+                {
+                    RequestId = r.Id,
+                    LeaveType = r.LeaveType,
+                    StartDate = r.StartDate,
+                    EndDate = r.EndDate,
+                    DaysRequested = r.DaysRequested,
+                    Status = r.Status,
+                    Reason = r.Reason,
+                    CreatedAt = r.CreatedAt
+                }).ToList(),
+            GeneratedDocuments = documents
+                .OrderByDescending(d => d.CreatedAt)
+                .Select(d => new PersonalDataExportDocument
+                {
+                    DocumentId = d.Id,
+                    DocumentType = d.DocumentType,
+                    Title = d.Title,
+                    Status = d.Status,
+                    CreatedAt = d.CreatedAt
+                }).ToList()
+        };
+
+        await TryLogAuditAsync(actorUserId, "PERSONAL_DATA_EXPORTED", $"Exported personal data for \"{user.FullName}\".");
+
+        return export;
+    }
+
     private async Task<Department> ValidateDepartmentAsync(Guid companyId, Guid departmentId, CancellationToken cancellationToken)
     {
         var department = await _unitOfWork.Departments.GetByIdAsync(departmentId, cancellationToken);

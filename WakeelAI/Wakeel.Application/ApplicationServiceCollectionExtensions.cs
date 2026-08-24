@@ -33,6 +33,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<ITemplateService, TemplateService>();
         services.AddScoped<IAuditLogService, AuditLogService>();
         services.AddScoped<IAbandonedDraftCleanupService, AbandonedDraftCleanupService>();
+        services.AddScoped<IDataRetentionService, DataRetentionService>();
 
         return services;
     }

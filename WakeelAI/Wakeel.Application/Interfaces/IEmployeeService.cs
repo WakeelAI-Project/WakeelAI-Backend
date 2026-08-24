@@ -16,4 +16,5 @@ public interface IEmployeeService
     Task<EmployeeDetailResponse?> RemovePhotoAsync(Guid companyId, Guid userId, CancellationToken cancellationToken = default);
     Task<EmployeeDetailResponse?> UpdateTimeZoneAsync(Guid companyId, Guid userId, string timeZoneId, CancellationToken cancellationToken = default);
     Task<EmployeeDetailResponse?> AdjustLeaveBalanceAsync(Guid companyId, Guid actorUserId, Guid recordId, string leaveType, AdjustLeaveBalanceRequest request, CancellationToken cancellationToken = default);
+    Task<PersonalDataExportResponse?> ExportPersonalDataAsync(Guid companyId, Guid actorUserId, Guid recordId, CancellationToken cancellationToken = default);
 }
