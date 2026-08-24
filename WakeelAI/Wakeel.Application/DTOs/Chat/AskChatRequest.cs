@@ -31,4 +31,12 @@ public record AskChatRequest
     /// </summary>
     [JsonPropertyName("field_values")]
     public object? FieldValues { get; init; }
+
+    /// <summary>Optional target employee ID (e.g. for HR querying specific employee).</summary>
+    [JsonPropertyName("target_employee_id")]
+    public string? TargetEmployeeId { get; init; }
+
+    /// <summary>Optional target employee name.</summary>
+    [JsonPropertyName("target_employee_name")]
+    public string? TargetEmployeeName { get; init; }
 }
