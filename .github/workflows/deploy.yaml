@@ -30,7 +30,6 @@ jobs:
 
       - name: Run tests
         run: dotnet test WakeelAI.slnx --configuration Release --no-build
-        continue-on-error: true
 
       - name: Publish API
         env:
