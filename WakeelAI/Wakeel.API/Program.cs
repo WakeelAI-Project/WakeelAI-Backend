@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.OpenApi.Models;
 using Wakeel.API.Middleware;
 
@@ -37,6 +38,20 @@ public partial class Program
                       .AllowAnyMethod()
                       .AllowCredentials();
             });
+        });
+
+        // FIX-23: the host sits behind a reverse proxy (IIS/ANCM on MonsterASP.NET),
+        // so without this every request's RemoteIpAddress is the proxy's own loopback
+        // address - RateLimitingMiddleware's per-IP fallback (used for anonymous routes
+        // like login/forgot-password) then collapses every real client into one shared
+        // bucket. KnownNetworks/KnownProxies are cleared because the proxy in front of
+        // this single-instance deployment is the in-process ASP.NET Core Module itself,
+        // not a fixed, externally-addressable IP that could be safely allow-listed here.
+        builder.Services.Configure<ForwardedHeadersOptions>(options =>
+        {
+            options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+            options.KnownIPNetworks.Clear();
+            options.KnownProxies.Clear();
         });
 
         // Swagger
@@ -94,6 +109,11 @@ public partial class Program
         //     app.MapOذpenApi();
         //     app.MapScalarApiReference();
         // }
+
+        // Must run before anything that reads the caller's IP/scheme - including
+        // UseHttpsRedirection below and RateLimitingMiddleware further down - so both
+        // see the real client, not the reverse proxy's.
+        app.UseForwardedHeaders();
 
         // Swagger
         app.UseSwagger();
